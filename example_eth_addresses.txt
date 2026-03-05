@@ -1,0 +1,12 @@
+# Example Ethereum addresses
+# These correspond to test private keys
+
+# Address for key 0x01
+0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
+
+# Address for key 0x02
+0x2b5ad5c4795c026514f8317c7a215e218dccd6cf
+
+# Other example addresses
+0x9c7002ea607c998e062793c420116b66f92421ac
+0xacc6378af93c8cdb42d429625cd531038531a1db

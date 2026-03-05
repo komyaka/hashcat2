@@ -133,7 +133,7 @@ jobs:
           envs: SHARED
           prepare: |
             pkg update
-            pkg install -y git gcc gmake gsed python3 rust llvm
+            pkg install -y gcc gmake gsed python3 rust llvm
           run: |
             gmake ENABLE_LTO=0 CC=clang CXX=clang++
 
@@ -144,7 +144,7 @@ jobs:
           usesh: true
           envs: SHARED
           prepare: |
-            pkg_add git gcc%11 gmake gsed llvm%19
+            pkg_add gcc%11 gmake gsed llvm%19
           run: |
             export TERM=xterm
             gmake ENABLE_LTO=0 CC=clang CXX=clang++
@@ -157,7 +157,7 @@ jobs:
           envs: SHARED
           prepare: |
             export PATH="/usr/sbin:$PATH"
-            pkg_add git gcc14 gmake gsed python313 llvm libiconv clang
+            pkg_add gcc14 gmake gsed python313 llvm libiconv clang
           run: |
             export PATH="/usr/pkg/gcc14/bin:$PATH"
             export TERM=xterm
@@ -171,7 +171,7 @@ jobs:
           envs: SHARED
           prepare: |
             pkg update
-            pkg install -y git gcc gmake gsed python3 llvm
+            pkg install -y gcc gmake gsed python3 llvm
           run: |
             export TERM=xterm
             gmake ENABLE_LTO=0 CC=clang CXX=clang++

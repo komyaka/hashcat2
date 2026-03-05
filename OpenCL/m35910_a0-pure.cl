@@ -12,13 +12,15 @@
 #include M2S(INCLUDE_PATH/inc_types.h)
 #include M2S(INCLUDE_PATH/inc_platform.cl)
 #include M2S(INCLUDE_PATH/inc_common.cl)
+#include M2S(INCLUDE_PATH/inc_rp.h)
+#include M2S(INCLUDE_PATH/inc_rp.cl)
 #include M2S(INCLUDE_PATH/inc_scalar.cl)
 #include M2S(INCLUDE_PATH/inc_hash_sha256.cl)
 #include M2S(INCLUDE_PATH/inc_hash_ripemd160.cl)
 #include M2S(INCLUDE_PATH/inc_ecc_secp256k1.cl)
 #endif
 
-KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_BASIC ())
+KERNEL_FQ KERNEL_FA void m35910_mxx (KERN_ATTR_RULES ())
 {
   /**
    * modifier
@@ -32,48 +34,56 @@ KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_BASIC ())
    * base
    */
 
-  sha256_ctx_t ctx0;
-
-  sha256_init (&ctx0);
-
-  sha256_update_global_swap (&ctx0, pws[gid].i, pws[gid].pw_len);
-
   secp256k1_t preG;
 
   set_precomputed_basepoint_g (&preG);
+
+  COPY_PW (pws[gid]);
 
   /**
    * loop
    */
 
-  /* addr_type is uniform across all threads for the same salt; hoist it
-   * outside the per-candidate loop to avoid repeated global-memory reads. */
-  const u32 addr_type = salt_bufs[SALT_POS_HOST].salt_buf[0];
-
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos++)
   {
-    sha256_ctx_t sha_ctx = ctx0;
+    pw_t p = PASTE_PW;
 
-    sha256_update_global_swap (&sha_ctx, combs_buf[il_pos].i, combs_buf[il_pos].pw_len);
+    p.pw_len = apply_rules (rules_buf[il_pos].cmds, p.i, p.pw_len);
 
-    sha256_final (&sha_ctx);
+    // Private key is the input directly (32 bytes big-endian).
+    // p.i[] is in hashcat LE word format (first byte in LSB of word 0).
+    // secp256k1 expects k[0] = LSW, k[7] = MSW, each word in BE byte order.
+    // Conversion: k[i] = hc_swap32_S(p.i[7-i])
+
+    if (p.pw_len != 32) continue; // Private key must be exactly 32 bytes
 
     u32 prv_key[9];
 
-    prv_key[0] = sha_ctx.h[7];
-    prv_key[1] = sha_ctx.h[6];
-    prv_key[2] = sha_ctx.h[5];
-    prv_key[3] = sha_ctx.h[4];
-    prv_key[4] = sha_ctx.h[3];
-    prv_key[5] = sha_ctx.h[2];
-    prv_key[6] = sha_ctx.h[1];
-    prv_key[7] = sha_ctx.h[0];
+    prv_key[0] = hc_swap32_S (p.i[7]);
+    prv_key[1] = hc_swap32_S (p.i[6]);
+    prv_key[2] = hc_swap32_S (p.i[5]);
+    prv_key[3] = hc_swap32_S (p.i[4]);
+    prv_key[4] = hc_swap32_S (p.i[3]);
+    prv_key[5] = hc_swap32_S (p.i[2]);
+    prv_key[6] = hc_swap32_S (p.i[1]);
+    prv_key[7] = hc_swap32_S (p.i[0]);
     prv_key[8] = 0;
+
+    // Validate private key range: 0 < prv_key < N (secp256k1 group order)
+    if (prv_key[0] == 0 && prv_key[1] == 0 && prv_key[2] == 0 && prv_key[3] == 0 &&
+        prv_key[4] == 0 && prv_key[5] == 0 && prv_key[6] == 0 && prv_key[7] == 0)
+    {
+      continue; // Private key cannot be zero
+    }
+
+    // Step 1: EC point multiplication pub_key = G * prv_key
 
     u32 x[8];
     u32 y[8];
 
     point_mul_xy (x, y, prv_key, &preG);
+
+    // Step 2: compressed public key (33 bytes)
 
     u32 pub_key[16] = { 0 };
 
@@ -88,6 +98,8 @@ KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_BASIC ())
     pub_key[2] = (x[5] >> 8) | (x[6] << 24);
     pub_key[1] = (x[6] >> 8) | (x[7] << 24);
     pub_key[0] = (x[7] >> 8) | (type << 24);
+
+    // Step 3: HASH160 = RIPEMD-160(SHA-256(pub_key))
 
     sha256_ctx_t ctx;
 
@@ -106,29 +118,6 @@ KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_BASIC ())
     ripemd160_update_swap (&rctx, tmp, 32);
     ripemd160_final       (&rctx);
 
-    if (addr_type == 1)
-    {
-      // P2SH: compute HASH160(0x0014 || hash160)
-      tmp[0] = (rctx.h[0] << 16) | (0x1400);
-      tmp[1] = (rctx.h[1] << 16) | (rctx.h[0] >> 16);
-      tmp[2] = (rctx.h[2] << 16) | (rctx.h[1] >> 16);
-      tmp[3] = (rctx.h[3] << 16) | (rctx.h[2] >> 16);
-      tmp[4] = (rctx.h[4] << 16) | (rctx.h[3] >> 16);
-      tmp[5] = (rctx.h[4] >> 16);
-      tmp[6] = 0; tmp[7] = 0;
-      /* tmp[8..15] already zero from { 0 } initializer */
-
-      sha256_init        (&ctx);
-      sha256_update_swap (&ctx, tmp, 22);
-      sha256_final       (&ctx);
-
-      for (u32 i = 0; i < 8; i++) tmp[i] = ctx.h[i];
-
-      ripemd160_init        (&rctx);
-      ripemd160_update_swap (&rctx, tmp, 32);
-      ripemd160_final       (&rctx);
-    }
-
     const u32 r0 = rctx.h[0];
     const u32 r1 = rctx.h[1];
     const u32 r2 = rctx.h[2];
@@ -138,7 +127,7 @@ KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_BASIC ())
   }
 }
 
-KERNEL_FQ KERNEL_FA void m35900_sxx (KERN_ATTR_BASIC ())
+KERNEL_FQ KERNEL_FA void m35910_sxx (KERN_ATTR_RULES ())
 {
   /**
    * modifier
@@ -164,43 +153,41 @@ KERNEL_FQ KERNEL_FA void m35900_sxx (KERN_ATTR_BASIC ())
    * base
    */
 
-  sha256_ctx_t ctx0;
-
-  sha256_init (&ctx0);
-
-  sha256_update_global_swap (&ctx0, pws[gid].i, pws[gid].pw_len);
-
   secp256k1_t preG;
 
   set_precomputed_basepoint_g (&preG);
+
+  COPY_PW (pws[gid]);
 
   /**
    * loop
    */
 
-  /* addr_type is uniform across all threads for the same salt; hoist it
-   * outside the per-candidate loop to avoid repeated global-memory reads. */
-  const u32 addr_type = salt_bufs[SALT_POS_HOST].salt_buf[0];
-
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos++)
   {
-    sha256_ctx_t sha_ctx = ctx0;
+    pw_t p = PASTE_PW;
 
-    sha256_update_global_swap (&sha_ctx, combs_buf[il_pos].i, combs_buf[il_pos].pw_len);
+    p.pw_len = apply_rules (rules_buf[il_pos].cmds, p.i, p.pw_len);
 
-    sha256_final (&sha_ctx);
+    if (p.pw_len != 32) continue;
 
     u32 prv_key[9];
 
-    prv_key[0] = sha_ctx.h[7];
-    prv_key[1] = sha_ctx.h[6];
-    prv_key[2] = sha_ctx.h[5];
-    prv_key[3] = sha_ctx.h[4];
-    prv_key[4] = sha_ctx.h[3];
-    prv_key[5] = sha_ctx.h[2];
-    prv_key[6] = sha_ctx.h[1];
-    prv_key[7] = sha_ctx.h[0];
+    prv_key[0] = hc_swap32_S (p.i[7]);
+    prv_key[1] = hc_swap32_S (p.i[6]);
+    prv_key[2] = hc_swap32_S (p.i[5]);
+    prv_key[3] = hc_swap32_S (p.i[4]);
+    prv_key[4] = hc_swap32_S (p.i[3]);
+    prv_key[5] = hc_swap32_S (p.i[2]);
+    prv_key[6] = hc_swap32_S (p.i[1]);
+    prv_key[7] = hc_swap32_S (p.i[0]);
     prv_key[8] = 0;
+
+    if (prv_key[0] == 0 && prv_key[1] == 0 && prv_key[2] == 0 && prv_key[3] == 0 &&
+        prv_key[4] == 0 && prv_key[5] == 0 && prv_key[6] == 0 && prv_key[7] == 0)
+    {
+      continue;
+    }
 
     u32 x[8];
     u32 y[8];
@@ -237,29 +224,6 @@ KERNEL_FQ KERNEL_FA void m35900_sxx (KERN_ATTR_BASIC ())
     ripemd160_init        (&rctx);
     ripemd160_update_swap (&rctx, tmp, 32);
     ripemd160_final       (&rctx);
-
-    if (addr_type == 1)
-    {
-      // P2SH: compute HASH160(0x0014 || hash160)
-      tmp[0] = (rctx.h[0] << 16) | (0x1400);
-      tmp[1] = (rctx.h[1] << 16) | (rctx.h[0] >> 16);
-      tmp[2] = (rctx.h[2] << 16) | (rctx.h[1] >> 16);
-      tmp[3] = (rctx.h[3] << 16) | (rctx.h[2] >> 16);
-      tmp[4] = (rctx.h[4] << 16) | (rctx.h[3] >> 16);
-      tmp[5] = (rctx.h[4] >> 16);
-      tmp[6] = 0; tmp[7] = 0;
-      /* tmp[8..15] already zero from { 0 } initializer */
-
-      sha256_init        (&ctx);
-      sha256_update_swap (&ctx, tmp, 22);
-      sha256_final       (&ctx);
-
-      for (u32 i = 0; i < 8; i++) tmp[i] = ctx.h[i];
-
-      ripemd160_init        (&rctx);
-      ripemd160_update_swap (&rctx, tmp, 32);
-      ripemd160_final       (&rctx);
-    }
 
     const u32 r0 = rctx.h[0];
     const u32 r1 = rctx.h[1];

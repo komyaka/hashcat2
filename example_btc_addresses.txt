@@ -1,0 +1,12 @@
+# Example Bitcoin addresses (P2PKH, compressed)
+# These correspond to test private keys
+
+# Address for key 0x01
+1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH
+
+# Address for key 0x02
+1cMh228HTCiwS8ZsaakH8A8wze1JR5ZsP
+
+# Other example addresses
+1CkwUnESKuVFyn3PVm1fyyMtXx6CT2STg7
+1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa

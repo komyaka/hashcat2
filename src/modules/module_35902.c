@@ -102,7 +102,11 @@ int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSE
   const u32 *digest = (const u32 *) digest_buf;
 
   return snprintf (line_buf, line_size, "0x%08x%08x%08x%08x%08x",
-    digest[0], digest[1], digest[2], digest[3], digest[4]);
+    byte_swap_32 (digest[0]),
+    byte_swap_32 (digest[1]),
+    byte_swap_32 (digest[2]),
+    byte_swap_32 (digest[3]),
+    byte_swap_32 (digest[4]));
 }
 
 void module_init (module_ctx_t *module_ctx)

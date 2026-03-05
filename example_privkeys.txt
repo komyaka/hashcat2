@@ -1,0 +1,18 @@
+# Example private keys file for Bitcoin/Ethereum testing
+# Format: 64 hex characters per line (32 bytes)
+# Prefix 0x is optional
+
+# Test key 1 (0x01)
+0000000000000000000000000000000000000000000000000000000000000001
+
+# Test key 2 (0x02)
+0000000000000000000000000000000000000000000000000000000000000002
+
+# Test key 3 (random example)
+7c09549d59f0496c5a32ac3c42b13ae7cedf7a561e807e019f6831dd5e5cf92c
+
+# Test key 4 (random example)
+aa3bc25cd1e0db9f38d8dbc2e76353aa885a4b869c6d3c7b8829debb96da4232
+
+# Test key 5 (with 0x prefix)
+0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

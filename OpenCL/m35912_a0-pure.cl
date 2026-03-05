@@ -19,7 +19,7 @@
 #include M2S(INCLUDE_PATH/inc_hash_keccak256.cl)
 #endif
 
-KERNEL_FQ KERNEL_FA void m35904_mxx (KERN_ATTR_RULES ())
+KERNEL_FQ KERNEL_FA void m35912_mxx (KERN_ATTR_RULES ())
 {
   const u64 gid = get_global_id (0);
 
@@ -37,22 +37,31 @@ KERNEL_FQ KERNEL_FA void m35904_mxx (KERN_ATTR_RULES ())
 
     p.pw_len = apply_rules (rules_buf[il_pos].cmds, p.i, p.pw_len);
 
-    // Keccak-256 of passphrase to get private key
-    u32 hash[8];
+    // Private key is the input directly (32 bytes big-endian).
+    // p.i[] is in hashcat LE word format (first byte in LSB of word 0).
+    // secp256k1 expects k[0] = LSW, k[7] = MSW, each word in BE byte order.
+    // Conversion: k[i] = hc_swap32_S(p.i[7-i])
 
-    sha3_256_hash (p.i, p.pw_len, hash);
+    if (p.pw_len != 32) continue; // Private key must be exactly 32 bytes
 
     u32 prv_key[9];
 
-    prv_key[0] = hc_swap32_S (hash[7]);
-    prv_key[1] = hc_swap32_S (hash[6]);
-    prv_key[2] = hc_swap32_S (hash[5]);
-    prv_key[3] = hc_swap32_S (hash[4]);
-    prv_key[4] = hc_swap32_S (hash[3]);
-    prv_key[5] = hc_swap32_S (hash[2]);
-    prv_key[6] = hc_swap32_S (hash[1]);
-    prv_key[7] = hc_swap32_S (hash[0]);
+    prv_key[0] = hc_swap32_S (p.i[7]);
+    prv_key[1] = hc_swap32_S (p.i[6]);
+    prv_key[2] = hc_swap32_S (p.i[5]);
+    prv_key[3] = hc_swap32_S (p.i[4]);
+    prv_key[4] = hc_swap32_S (p.i[3]);
+    prv_key[5] = hc_swap32_S (p.i[2]);
+    prv_key[6] = hc_swap32_S (p.i[1]);
+    prv_key[7] = hc_swap32_S (p.i[0]);
     prv_key[8] = 0;
+
+    // Validate private key range: 0 < prv_key < N (secp256k1 group order)
+    if (prv_key[0] == 0 && prv_key[1] == 0 && prv_key[2] == 0 && prv_key[3] == 0 &&
+        prv_key[4] == 0 && prv_key[5] == 0 && prv_key[6] == 0 && prv_key[7] == 0)
+    {
+      continue; // Private key cannot be zero
+    }
 
     u32 x[8];
     u32 y[8];
@@ -95,7 +104,7 @@ KERNEL_FQ KERNEL_FA void m35904_mxx (KERN_ATTR_RULES ())
   }
 }
 
-KERNEL_FQ KERNEL_FA void m35904_sxx (KERN_ATTR_RULES ())
+KERNEL_FQ KERNEL_FA void m35912_sxx (KERN_ATTR_RULES ())
 {
   const u64 gid = get_global_id (0);
 
@@ -121,21 +130,25 @@ KERNEL_FQ KERNEL_FA void m35904_sxx (KERN_ATTR_RULES ())
 
     p.pw_len = apply_rules (rules_buf[il_pos].cmds, p.i, p.pw_len);
 
-    u32 hash[8];
-
-    sha3_256_hash (p.i, p.pw_len, hash);
+    if (p.pw_len != 32) continue;
 
     u32 prv_key[9];
 
-    prv_key[0] = hc_swap32_S (hash[7]);
-    prv_key[1] = hc_swap32_S (hash[6]);
-    prv_key[2] = hc_swap32_S (hash[5]);
-    prv_key[3] = hc_swap32_S (hash[4]);
-    prv_key[4] = hc_swap32_S (hash[3]);
-    prv_key[5] = hc_swap32_S (hash[2]);
-    prv_key[6] = hc_swap32_S (hash[1]);
-    prv_key[7] = hc_swap32_S (hash[0]);
+    prv_key[0] = hc_swap32_S (p.i[7]);
+    prv_key[1] = hc_swap32_S (p.i[6]);
+    prv_key[2] = hc_swap32_S (p.i[5]);
+    prv_key[3] = hc_swap32_S (p.i[4]);
+    prv_key[4] = hc_swap32_S (p.i[3]);
+    prv_key[5] = hc_swap32_S (p.i[2]);
+    prv_key[6] = hc_swap32_S (p.i[1]);
+    prv_key[7] = hc_swap32_S (p.i[0]);
     prv_key[8] = 0;
+
+    if (prv_key[0] == 0 && prv_key[1] == 0 && prv_key[2] == 0 && prv_key[3] == 0 &&
+        prv_key[4] == 0 && prv_key[5] == 0 && prv_key[6] == 0 && prv_key[7] == 0)
+    {
+      continue;
+    }
 
     u32 x[8];
     u32 y[8];

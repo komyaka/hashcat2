@@ -12,55 +12,69 @@
 #include M2S(INCLUDE_PATH/inc_types.h)
 #include M2S(INCLUDE_PATH/inc_platform.cl)
 #include M2S(INCLUDE_PATH/inc_common.cl)
-#include M2S(INCLUDE_PATH/inc_rp.h)
-#include M2S(INCLUDE_PATH/inc_rp.cl)
 #include M2S(INCLUDE_PATH/inc_scalar.cl)
 #include M2S(INCLUDE_PATH/inc_ecc_secp256k1.cl)
 #include M2S(INCLUDE_PATH/inc_hash_keccak256.cl)
 #endif
 
-KERNEL_FQ KERNEL_FA void m35904_mxx (KERN_ATTR_RULES ())
+KERNEL_FQ KERNEL_FA void m35912_mxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
 
   if (gid >= GID_CNT) return;
 
+  const u32 pw_len = pws[gid].pw_len;
+
+  u32x w[64] = { 0 };
+
+  for (u32 i = 0, idx = 0; i < pw_len; i += 4, idx += 1)
+  {
+    w[idx] = pws[gid].i[idx];
+  }
+
   secp256k1_t preG;
 
   set_precomputed_basepoint_g (&preG);
 
-  COPY_PW (pws[gid]);
+  u32x w0l = w[0];
 
-  for (u32 il_pos = 0; il_pos < IL_CNT; il_pos++)
+  for (u32 il_pos = 0; il_pos < IL_CNT; il_pos += VECT_SIZE)
   {
-    pw_t p = PASTE_PW;
+    const u32x w0r = words_buf_r[il_pos / VECT_SIZE];
 
-    p.pw_len = apply_rules (rules_buf[il_pos].cmds, p.i, p.pw_len);
+    const u32x w0 = w0l | w0r;
 
-    // Keccak-256 of passphrase to get private key
-    u32 hash[8];
+    w[0] = w0;
 
-    sha3_256_hash (p.i, p.pw_len, hash);
+    // Private key must be exactly 32 bytes
+    if (pw_len != 32) continue;
 
     u32 prv_key[9];
 
-    prv_key[0] = hc_swap32_S (hash[7]);
-    prv_key[1] = hc_swap32_S (hash[6]);
-    prv_key[2] = hc_swap32_S (hash[5]);
-    prv_key[3] = hc_swap32_S (hash[4]);
-    prv_key[4] = hc_swap32_S (hash[3]);
-    prv_key[5] = hc_swap32_S (hash[2]);
-    prv_key[6] = hc_swap32_S (hash[1]);
-    prv_key[7] = hc_swap32_S (hash[0]);
+    prv_key[0] = hc_swap32_S ((u32) w[7]);
+    prv_key[1] = hc_swap32_S ((u32) w[6]);
+    prv_key[2] = hc_swap32_S ((u32) w[5]);
+    prv_key[3] = hc_swap32_S ((u32) w[4]);
+    prv_key[4] = hc_swap32_S ((u32) w[3]);
+    prv_key[5] = hc_swap32_S ((u32) w[2]);
+    prv_key[6] = hc_swap32_S ((u32) w[1]);
+    prv_key[7] = hc_swap32_S ((u32) w[0]);
     prv_key[8] = 0;
+
+    // Private key cannot be zero
+    if (prv_key[0] == 0 && prv_key[1] == 0 && prv_key[2] == 0 && prv_key[3] == 0 &&
+        prv_key[4] == 0 && prv_key[5] == 0 && prv_key[6] == 0 && prv_key[7] == 0)
+    {
+      continue;
+    }
 
     u32 x[8];
     u32 y[8];
 
     point_mul_xy (x, y, prv_key, &preG);
 
-    // Ethereum uses uncompressed public key (x || y) for address derivation
-    // Store as big-endian bytes in u32 array (16 words = 64 bytes)
+    // Ethereum uses uncompressed public key (x || y, 64 bytes)
+
     u32 pub_key[16];
 
     pub_key[ 0] = hc_swap32_S (x[7]);
@@ -81,11 +95,11 @@ KERNEL_FQ KERNEL_FA void m35904_mxx (KERN_ATTR_RULES ())
     pub_key[15] = hc_swap32_S (y[0]);
 
     // Keccak-256 of uncompressed public key, take last 20 bytes
+
     u32 addr[5];
 
     keccak_256_64 (pub_key, addr);
 
-    // addr is in LE byte order from Keccak, swap to match digest format
     const u32 r0 = addr[0];
     const u32 r1 = addr[1];
     const u32 r2 = addr[2];
@@ -95,7 +109,7 @@ KERNEL_FQ KERNEL_FA void m35904_mxx (KERN_ATTR_RULES ())
   }
 }
 
-KERNEL_FQ KERNEL_FA void m35904_sxx (KERN_ATTR_RULES ())
+KERNEL_FQ KERNEL_FA void m35912_sxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
 
@@ -109,33 +123,48 @@ KERNEL_FQ KERNEL_FA void m35904_sxx (KERN_ATTR_RULES ())
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
+  const u32 pw_len = pws[gid].pw_len;
+
+  u32x w[64] = { 0 };
+
+  for (u32 i = 0, idx = 0; i < pw_len; i += 4, idx += 1)
+  {
+    w[idx] = pws[gid].i[idx];
+  }
+
   secp256k1_t preG;
 
   set_precomputed_basepoint_g (&preG);
 
-  COPY_PW (pws[gid]);
+  u32x w0l = w[0];
 
-  for (u32 il_pos = 0; il_pos < IL_CNT; il_pos++)
+  for (u32 il_pos = 0; il_pos < IL_CNT; il_pos += VECT_SIZE)
   {
-    pw_t p = PASTE_PW;
+    const u32x w0r = words_buf_r[il_pos / VECT_SIZE];
 
-    p.pw_len = apply_rules (rules_buf[il_pos].cmds, p.i, p.pw_len);
+    const u32x w0 = w0l | w0r;
 
-    u32 hash[8];
+    w[0] = w0;
 
-    sha3_256_hash (p.i, p.pw_len, hash);
+    if (pw_len != 32) continue;
 
     u32 prv_key[9];
 
-    prv_key[0] = hc_swap32_S (hash[7]);
-    prv_key[1] = hc_swap32_S (hash[6]);
-    prv_key[2] = hc_swap32_S (hash[5]);
-    prv_key[3] = hc_swap32_S (hash[4]);
-    prv_key[4] = hc_swap32_S (hash[3]);
-    prv_key[5] = hc_swap32_S (hash[2]);
-    prv_key[6] = hc_swap32_S (hash[1]);
-    prv_key[7] = hc_swap32_S (hash[0]);
+    prv_key[0] = hc_swap32_S ((u32) w[7]);
+    prv_key[1] = hc_swap32_S ((u32) w[6]);
+    prv_key[2] = hc_swap32_S ((u32) w[5]);
+    prv_key[3] = hc_swap32_S ((u32) w[4]);
+    prv_key[4] = hc_swap32_S ((u32) w[3]);
+    prv_key[5] = hc_swap32_S ((u32) w[2]);
+    prv_key[6] = hc_swap32_S ((u32) w[1]);
+    prv_key[7] = hc_swap32_S ((u32) w[0]);
     prv_key[8] = 0;
+
+    if (prv_key[0] == 0 && prv_key[1] == 0 && prv_key[2] == 0 && prv_key[3] == 0 &&
+        prv_key[4] == 0 && prv_key[5] == 0 && prv_key[6] == 0 && prv_key[7] == 0)
+    {
+      continue;
+    }
 
     u32 x[8];
     u32 y[8];
