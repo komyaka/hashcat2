@@ -83,7 +83,9 @@ endif
 ## Makefile flags
 ##
 
-MAKEFLAGS               += -l -j 8 -rR --no-print-directory
+# Allow user to override parallel jobs, default to 4 for better stability with LTO
+PARALLEL_JOBS           ?= 4
+MAKEFLAGS               += -l -j $(PARALLEL_JOBS) -rR --no-print-directory
 
 ifneq ($(findstring clean,$(MAKECMDGOALS)),)
 MAKEFLAGS               += -j 1

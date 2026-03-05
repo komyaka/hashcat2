@@ -743,6 +743,208 @@ DECLSPEC void mul_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS co
   }
 }
 
+DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
+{
+  u32 t[16] = { 0 }; // we need up to double the space (2 * 8)
+
+  /*
+   * First compute a * a with symmetry optimization:
+   * For squaring, a[j] * a[i-j] = a[i-j] * a[j], so we can compute
+   * half the products and double them, then add the diagonal terms
+   */
+
+  u32 t0 = 0;
+  u32 t1 = 0;
+  u32 c  = 0;
+
+  // Handle lower half of product (i = 0 to 7)
+  for (u32 i = 0; i < 8; i++)
+  {
+    // Add cross products (doubled)
+    for (u32 j = 0; j < (i + 1) / 2; j++)
+    {
+      u64 p = ((u64) a[j]) * a[i - j];
+
+      u64 d = ((u64) t1) << 32 | t0;
+
+      // Double the product
+      u64 p2 = p + p;  // 2*p
+      u32 overflow = (p2 < p) ? 1 : 0;  // Check if doubling overflowed
+      
+      d += p2;
+
+      t0 = (u32) d;
+      t1 = d >> 32;
+
+      c += (d < p2) + overflow;  // Proper carry detection
+    }
+
+    // Add diagonal term if i is even
+    if ((i & 1) == 0)
+    {
+      u32 half_idx = i / 2;
+      u64 p = ((u64) a[half_idx]) * a[half_idx];
+
+      u64 d = ((u64) t1) << 32 | t0;
+
+      d += p;
+
+      t0 = (u32) d;
+      t1 = d >> 32;
+
+      c += d < p;
+    }
+
+    t[i] = t0;
+
+    t0 = t1;
+    t1 = c;
+
+    c = 0;
+  }
+
+  // Handle upper half of product (i = 8 to 15)
+  for (u32 i = 8; i < 15; i++)
+  {
+    // Add cross products (doubled)
+    u32 j_start = i - 7;
+    u32 j_end = (i + 1) / 2;
+    for (u32 j = j_start; j < j_end; j++)
+    {
+      u64 p = ((u64) a[j]) * a[i - j];
+
+      u64 d = ((u64) t1) << 32 | t0;
+
+      // Double the product
+      u64 p2 = p + p;  // 2*p
+      u32 overflow = (p2 < p) ? 1 : 0;  // Check if doubling overflowed
+      
+      d += p2;
+
+      t0 = (u32) d;
+      t1 = d >> 32;
+
+      c += (d < p2) + overflow;  // Proper carry detection
+    }
+
+    // Add diagonal term if i is even
+    if ((i & 1) == 0)
+    {
+      u32 half_idx = i / 2;
+      u64 p = ((u64) a[half_idx]) * a[half_idx];
+
+      u64 d = ((u64) t1) << 32 | t0;
+
+      d += p;
+
+      t0 = (u32) d;
+      t1 = d >> 32;
+
+      c += d < p;
+    }
+
+    t[i] = t0;
+
+    t0 = t1;
+    t1 = c;
+
+    c = 0;
+  }
+
+  t[15] = t0;
+
+
+
+  /*
+   * Now do the modulo operation:
+   * (r = t % p)
+   *
+   * This is IDENTICAL to mul_mod's reduction (lines 664-743)
+   * http://www.isys.uni-klu.ac.at/PDF/2001-0126-MT.pdf (p.354 or p.9 in that document)
+   */
+
+  u32 tmp[16] = { 0 };
+
+  // c = 0;
+
+  // Note: SECP256K1_P = 2^256 - 2^32 - 977 (0x03d1 = 977)
+  // multiply t[8]...t[15] by omega:
+
+  for (u32 i = 0, j = 8; i < 8; i++, j++)
+  {
+    u64 p = ((u64) 0x03d1) * t[j] + c;
+
+    tmp[i] = (u32) p;
+
+    c = p >> 32;
+  }
+
+  tmp[8] = c;
+
+  c = add (tmp + 1, tmp + 1, t + 8); // modifies tmp[1]...tmp[8]
+
+  tmp[9] = c;
+
+
+  // r = t + tmp
+
+  c = add (r, t, tmp);
+
+  // multiply t[0]...t[7] by omega:
+
+  u32 c2 = 0;
+
+  // memset (t, 0, sizeof (t));
+
+  for (u32 i = 0, j = 8; i < 8; i++, j++)
+  {
+    u64 p = ((u64) 0x3d1) * tmp[j] + c2;
+
+    t[i] = (u32) p;
+
+    c2 = p >> 32;
+  }
+
+  t[8] = c2;
+
+  c2 = add (t + 1, t + 1, tmp + 8); // modifies t[1]...t[8]
+
+  t[9] = c2;
+
+
+  // r = r + t
+
+  c2 = add (r, r, t);
+
+  c += c2;
+
+  t[0] = SECP256K1_P0;
+  t[1] = SECP256K1_P1;
+  t[2] = SECP256K1_P2;
+  t[3] = SECP256K1_P3;
+  t[4] = SECP256K1_P4;
+  t[5] = SECP256K1_P5;
+  t[6] = SECP256K1_P6;
+  t[7] = SECP256K1_P7;
+
+  for (u32 i = c; i > 0; i--)
+  {
+    sub (r, r, t);
+  }
+
+  for (int i = 7; i >= 0; i--)
+  {
+    if (r[i] < t[i]) break;
+
+    if (r[i] > t[i])
+    {
+      sub (r, r, t);
+
+      break;
+    }
+  }
+}
+
 DECLSPEC void sqrt_mod (PRIVATE_AS u32 *r)
 {
   // Fermat's Little Theorem
@@ -772,7 +974,7 @@ DECLSPEC void sqrt_mod (PRIVATE_AS u32 *r)
 
   for (u32 i = 255; i > 1; i--) // we just skip the last 2 multiplications (=> exp / 4)
   {
-    mul_mod (t, t, t); // r * r
+    sqr_mod (t, t); // r * r
 
     u32 idx  = i >> 5;
     u32 mask = 1 << (i & 0x1f);
@@ -797,235 +999,90 @@ DECLSPEC void sqrt_mod (PRIVATE_AS u32 *r)
 
 DECLSPEC void inv_mod (PRIVATE_AS u32 *a)
 {
-  // How often does this really happen? it should "almost" never happen (but would be safer)
-  // if ((a[0] | a[1] | a[2] | a[3] | a[4] | a[5] | a[6] | a[7]) == 0) return;
+  /*
+   * Fermat's Little Theorem: a^(p-1) ≡ 1 (mod p) for prime p
+   * Therefore: a^(-1) ≡ a^(p-2) (mod p)
+   * 
+   * For secp256k1, p-2 = FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
+   * 
+   * This implementation uses a simple square-and-multiply algorithm with NO branches
+   * in the main loop, making it GPU-friendly. All iterations are executed regardless
+   * of bit values, using conditional multiplication.
+   *
+   * Total: 255 squarings + up to 255 multiplications (worst case)
+   * Actual: 255 squarings + ~128 multiplications (average)
+   */
 
-  u32 t0[8];
+  // p-2 in 32-bit limbs (secp256k1 prime minus 2)
+  // p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+  // p-2 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
+  u32 exp[8];
+  exp[0] = SECP256K1_P0 - 2; // 0xFFFFFC2F - 2 = 0xFFFFFC2D (no underflow)
+  exp[1] = SECP256K1_P1;      // 0xFFFFFFFE  
+  exp[2] = SECP256K1_P2;      // 0xFFFFFFFF
+  exp[3] = SECP256K1_P3;      // 0xFFFFFFFF
+  exp[4] = SECP256K1_P4;      // 0xFFFFFFFF
+  exp[5] = SECP256K1_P5;      // 0xFFFFFFFF
+  exp[6] = SECP256K1_P6;      // 0xFFFFFFFF
+  exp[7] = SECP256K1_P7;      // 0xFFFFFFFF
 
-  t0[0] = a[0];
-  t0[1] = a[1];
-  t0[2] = a[2];
-  t0[3] = a[3];
-  t0[4] = a[4];
-  t0[5] = a[5];
-  t0[6] = a[6];
-  t0[7] = a[7];
+  // Save input
+  u32 base[8];
+  base[0] = a[0];
+  base[1] = a[1];
+  base[2] = a[2];
+  base[3] = a[3];
+  base[4] = a[4];
+  base[5] = a[5];
+  base[6] = a[6];
+  base[7] = a[7];
 
-  u32 p[8];
+  // Result accumulator, initialized to 1
+  u32 result[8] = { 0 };
+  result[0] = 1;
 
-  p[0] = SECP256K1_P0;
-  p[1] = SECP256K1_P1;
-  p[2] = SECP256K1_P2;
-  p[3] = SECP256K1_P3;
-  p[4] = SECP256K1_P4;
-  p[5] = SECP256K1_P5;
-  p[6] = SECP256K1_P6;
-  p[7] = SECP256K1_P7;
+  // Temporary for multiplication result
+  u32 temp[8];
 
-  u32 t1[8];
-
-  t1[0] = SECP256K1_P0;
-  t1[1] = SECP256K1_P1;
-  t1[2] = SECP256K1_P2;
-  t1[3] = SECP256K1_P3;
-  t1[4] = SECP256K1_P4;
-  t1[5] = SECP256K1_P5;
-  t1[6] = SECP256K1_P6;
-  t1[7] = SECP256K1_P7;
-
-  u32 t2[8] = { 0 };
-
-  t2[0] = 0x00000001;
-
-  u32 t3[8] = { 0 };
-
-  u32 b = (t0[0] != t1[0])
-        | (t0[1] != t1[1])
-        | (t0[2] != t1[2])
-        | (t0[3] != t1[3])
-        | (t0[4] != t1[4])
-        | (t0[5] != t1[5])
-        | (t0[6] != t1[6])
-        | (t0[7] != t1[7]);
-
-  while (b)
+  // Process all 256 bits (from bit 0 to bit 255)
+  // Using constant-time approach: always compute, conditionally use result
+  for (u32 bit_idx = 0; bit_idx < 256; bit_idx++)
   {
-    if ((t0[0] & 1) == 0) // even
-    {
-      t0[0] = t0[0] >> 1 | t0[1] << 31;
-      t0[1] = t0[1] >> 1 | t0[2] << 31;
-      t0[2] = t0[2] >> 1 | t0[3] << 31;
-      t0[3] = t0[3] >> 1 | t0[4] << 31;
-      t0[4] = t0[4] >> 1 | t0[5] << 31;
-      t0[5] = t0[5] >> 1 | t0[6] << 31;
-      t0[6] = t0[6] >> 1 | t0[7] << 31;
-      t0[7] = t0[7] >> 1;
+    // Check if this bit is set in the exponent
+    u32 limb_idx = bit_idx >> 5;        // bit_idx / 32
+    u32 bit_pos = bit_idx & 0x1f;       // bit_idx % 32
+    u32 bit_set = (exp[limb_idx] >> bit_pos) & 1;  // bit_set ∈ {0, 1}
 
-      u32 c = 0;
+    // Conditionally multiply: if bit is set, multiply result by base
+    // We always do the multiplication, but only update result if bit_set == 1
+    mul_mod(temp, result, base);
+    
+    // Constant-time conditional move: result = bit_set ? temp : result
+    // Using bitwise mask to avoid branches (GPU-friendly)
+    // Since bit_set ∈ {0, 1}, negation produces 0x00000000 or 0xFFFFFFFF
+    u32 mask = -(bit_set);  // Two's complement: -0 = 0x00000000, -1 = 0xFFFFFFFF
+    result[0] = (temp[0] & mask) | (result[0] & ~mask);
+    result[1] = (temp[1] & mask) | (result[1] & ~mask);
+    result[2] = (temp[2] & mask) | (result[2] & ~mask);
+    result[3] = (temp[3] & mask) | (result[3] & ~mask);
+    result[4] = (temp[4] & mask) | (result[4] & ~mask);
+    result[5] = (temp[5] & mask) | (result[5] & ~mask);
+    result[6] = (temp[6] & mask) | (result[6] & ~mask);
+    result[7] = (temp[7] & mask) | (result[7] & ~mask);
 
-      if (t2[0] & 1) c = add (t2, t2, p);
-
-      t2[0] = t2[0] >> 1 | t2[1] << 31;
-      t2[1] = t2[1] >> 1 | t2[2] << 31;
-      t2[2] = t2[2] >> 1 | t2[3] << 31;
-      t2[3] = t2[3] >> 1 | t2[4] << 31;
-      t2[4] = t2[4] >> 1 | t2[5] << 31;
-      t2[5] = t2[5] >> 1 | t2[6] << 31;
-      t2[6] = t2[6] >> 1 | t2[7] << 31;
-      t2[7] = t2[7] >> 1 | c     << 31;
-    }
-    else if ((t1[0] & 1) == 0)
-    {
-      t1[0] = t1[0] >> 1 | t1[1] << 31;
-      t1[1] = t1[1] >> 1 | t1[2] << 31;
-      t1[2] = t1[2] >> 1 | t1[3] << 31;
-      t1[3] = t1[3] >> 1 | t1[4] << 31;
-      t1[4] = t1[4] >> 1 | t1[5] << 31;
-      t1[5] = t1[5] >> 1 | t1[6] << 31;
-      t1[6] = t1[6] >> 1 | t1[7] << 31;
-      t1[7] = t1[7] >> 1;
-
-      u32 c = 0;
-
-      if (t3[0] & 1) c = add (t3, t3, p);
-
-      t3[0] = t3[0] >> 1 | t3[1] << 31;
-      t3[1] = t3[1] >> 1 | t3[2] << 31;
-      t3[2] = t3[2] >> 1 | t3[3] << 31;
-      t3[3] = t3[3] >> 1 | t3[4] << 31;
-      t3[4] = t3[4] >> 1 | t3[5] << 31;
-      t3[5] = t3[5] >> 1 | t3[6] << 31;
-      t3[6] = t3[6] >> 1 | t3[7] << 31;
-      t3[7] = t3[7] >> 1 | c     << 31;
-    }
-    else
-    {
-      u32 gt = 0;
-
-      for (int i = 7; i >= 0; i--)
-      {
-        if (t0[i] > t1[i])
-        {
-          gt = 1;
-
-          break;
-        }
-
-        if (t0[i] < t1[i]) break;
-      }
-
-      if (gt)
-      {
-        sub (t0, t0, t1);
-
-        t0[0] = t0[0] >> 1 | t0[1] << 31;
-        t0[1] = t0[1] >> 1 | t0[2] << 31;
-        t0[2] = t0[2] >> 1 | t0[3] << 31;
-        t0[3] = t0[3] >> 1 | t0[4] << 31;
-        t0[4] = t0[4] >> 1 | t0[5] << 31;
-        t0[5] = t0[5] >> 1 | t0[6] << 31;
-        t0[6] = t0[6] >> 1 | t0[7] << 31;
-        t0[7] = t0[7] >> 1;
-
-        u32 lt = 0;
-
-        for (int i = 7; i >= 0; i--)
-        {
-          if (t2[i] < t3[i])
-          {
-            lt = 1;
-
-            break;
-          }
-
-          if (t2[i] > t3[i]) break;
-        }
-
-        if (lt) add (t2, t2, p);
-
-        sub (t2, t2, t3);
-
-        u32 c = 0;
-
-        if (t2[0] & 1) c = add (t2, t2, p);
-
-        t2[0] = t2[0] >> 1 | t2[1] << 31;
-        t2[1] = t2[1] >> 1 | t2[2] << 31;
-        t2[2] = t2[2] >> 1 | t2[3] << 31;
-        t2[3] = t2[3] >> 1 | t2[4] << 31;
-        t2[4] = t2[4] >> 1 | t2[5] << 31;
-        t2[5] = t2[5] >> 1 | t2[6] << 31;
-        t2[6] = t2[6] >> 1 | t2[7] << 31;
-        t2[7] = t2[7] >> 1 | c     << 31;
-      }
-      else
-      {
-        sub (t1, t1, t0);
-
-        t1[0] = t1[0] >> 1 | t1[1] << 31;
-        t1[1] = t1[1] >> 1 | t1[2] << 31;
-        t1[2] = t1[2] >> 1 | t1[3] << 31;
-        t1[3] = t1[3] >> 1 | t1[4] << 31;
-        t1[4] = t1[4] >> 1 | t1[5] << 31;
-        t1[5] = t1[5] >> 1 | t1[6] << 31;
-        t1[6] = t1[6] >> 1 | t1[7] << 31;
-        t1[7] = t1[7] >> 1;
-
-        u32 lt = 0;
-
-        for (int i = 7; i >= 0; i--)
-        {
-          if (t3[i] < t2[i])
-          {
-            lt = 1;
-
-            break;
-          }
-
-          if (t3[i] > t2[i]) break;
-        }
-
-        if (lt) add (t3, t3, p);
-
-        sub (t3, t3, t2);
-
-        u32 c = 0;
-
-        if (t3[0] & 1) c = add (t3, t3, p);
-
-        t3[0] = t3[0] >> 1 | t3[1] << 31;
-        t3[1] = t3[1] >> 1 | t3[2] << 31;
-        t3[2] = t3[2] >> 1 | t3[3] << 31;
-        t3[3] = t3[3] >> 1 | t3[4] << 31;
-        t3[4] = t3[4] >> 1 | t3[5] << 31;
-        t3[5] = t3[5] >> 1 | t3[6] << 31;
-        t3[6] = t3[6] >> 1 | t3[7] << 31;
-        t3[7] = t3[7] >> 1 | c     << 31;
-      }
-    }
-
-    // update b:
-
-    b = (t0[0] != t1[0])
-      | (t0[1] != t1[1])
-      | (t0[2] != t1[2])
-      | (t0[3] != t1[3])
-      | (t0[4] != t1[4])
-      | (t0[5] != t1[5])
-      | (t0[6] != t1[6])
-      | (t0[7] != t1[7]);
+    // Square base for next iteration (except on last iteration, but we do it anyway for constant time)
+    sqr_mod(base, base);
   }
 
-  // set result:
-
-  a[0] = t2[0];
-  a[1] = t2[1];
-  a[2] = t2[2];
-  a[3] = t2[3];
-  a[4] = t2[4];
-  a[5] = t2[5];
-  a[6] = t2[6];
-  a[7] = t2[7];
+  // Copy result back to input
+  a[0] = result[0];
+  a[1] = result[1];
+  a[2] = result[2];
+  a[3] = result[3];
+  a[4] = result[4];
+  a[5] = result[5];
+  a[6] = result[6];
+  a[7] = result[7];
 }
 
 /*
@@ -1119,13 +1176,13 @@ DECLSPEC void point_double (PRIVATE_AS u32 *x, PRIVATE_AS u32 *y, PRIVATE_AS u32
   u32 t5[8];
   u32 t6[8];
 
-  mul_mod (t4, t1, t1); // t4 = x^2
+  sqr_mod (t4, t1); // t4 = x^2
 
-  mul_mod (t5, t2, t2); // t5 = y^2
+  sqr_mod (t5, t2); // t5 = y^2
 
   mul_mod (t1, t1, t5); // t1 = x*y^2
 
-  mul_mod (t5, t5, t5); // t5 = t5^2 = y^4
+  sqr_mod (t5, t5); // t5 = t5^2 = y^4
 
   // here the z^2 and z^4 is not needed for a = 0
 
@@ -1167,7 +1224,7 @@ DECLSPEC void point_double (PRIVATE_AS u32 *x, PRIVATE_AS u32 *y, PRIVATE_AS u32
   t4[6] = t4[6] >> 1 | t4[7] << 31;
   t4[7] = t4[7] >> 1 | c     << 31;
 
-  mul_mod (t6, t4, t4); // t6 = t4^2 = (3/2 * x^2)^2
+  sqr_mod (t6, t4); // t6 = t4^2 = (3/2 * x^2)^2
 
   add_mod (t2, t1, t1); // t2 = 2 * t1
 
@@ -1337,7 +1394,7 @@ DECLSPEC void point_add (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 
   u32 t8[8];
   u32 t9[8];
 
-  mul_mod (t6, t3, t3); // t6 = t3^2
+  sqr_mod (t6, t3); // t6 = t3^2
 
   mul_mod (t7, t6, t3); // t7 = t6*t3
   mul_mod (t6, t6, t4); // t6 = t6*t4
@@ -1347,7 +1404,7 @@ DECLSPEC void point_add (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 
   sub_mod (t7, t7, t2); // t7 = t7-t2
 
   mul_mod (t8, t3, t6); // t8 = t3*t6
-  mul_mod (t4, t6, t6); // t4 = t6^2
+  sqr_mod (t4, t6); // t4 = t6^2
   mul_mod (t9, t4, t6); // t9 = t4*t6
   mul_mod (t4, t4, t1); // t4 = t4*t1
 
@@ -1376,7 +1433,7 @@ DECLSPEC void point_add (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 
     add (t6, t6, a);
   }
 
-  mul_mod (t5, t7, t7); // t5 = t7*t7
+  sqr_mod (t5, t7); // t5 = t7*t7
 
   sub_mod (t5, t5, t6); // t5 = t5-t6
   sub_mod (t5, t5, t9); // t5 = t5-t9
@@ -1553,55 +1610,37 @@ DECLSPEC void point_get_coords (PRIVATE_AS secp256k1_t *r, PRIVATE_AS const u32 
   point_double (rx, ry, rz);          // 2
   point_add    (rx, ry, rz, tx, ty);  // 3
 
-  // to affine:
+  // Save Z coordinate for batch inversion later
+  u32 rz3[8];
+  rz3[0] = rz[0];
+  rz3[1] = rz[1];
+  rz3[2] = rz[2];
+  rz3[3] = rz[3];
+  rz3[4] = rz[4];
+  rz3[5] = rz[5];
+  rz3[6] = rz[6];
+  rz3[7] = rz[7];
 
-  inv_mod (rz);
+  // Save X and Y coordinates for 3G
+  u32 rx3[8];
+  rx3[0] = rx[0];
+  rx3[1] = rx[1];
+  rx3[2] = rx[2];
+  rx3[3] = rx[3];
+  rx3[4] = rx[4];
+  rx3[5] = rx[5];
+  rx3[6] = rx[6];
+  rx3[7] = rx[7];
 
-  mul_mod (neg, rz, rz); // neg is temporary variable (z^2)
-  mul_mod (rx,  rx, neg);
-
-  mul_mod (rz, neg, rz);
-  mul_mod (ry, ry, rz);
-
-  r->xy[24] = rx[0];
-  r->xy[25] = rx[1];
-  r->xy[26] = rx[2];
-  r->xy[27] = rx[3];
-  r->xy[28] = rx[4];
-  r->xy[29] = rx[5];
-  r->xy[30] = rx[6];
-  r->xy[31] = rx[7];
-
-  r->xy[32] = ry[0];
-  r->xy[33] = ry[1];
-  r->xy[34] = ry[2];
-  r->xy[35] = ry[3];
-  r->xy[36] = ry[4];
-  r->xy[37] = ry[5];
-  r->xy[38] = ry[6];
-  r->xy[39] = ry[7];
-
-  // -3:
-
-  neg[0] = ry[0];
-  neg[1] = ry[1];
-  neg[2] = ry[2];
-  neg[3] = ry[3];
-  neg[4] = ry[4];
-  neg[5] = ry[5];
-  neg[6] = ry[6];
-  neg[7] = ry[7];
-
-  sub_mod (neg, p, neg);
-
-  r->xy[40] = neg[0];
-  r->xy[41] = neg[1];
-  r->xy[42] = neg[2];
-  r->xy[43] = neg[3];
-  r->xy[44] = neg[4];
-  r->xy[45] = neg[5];
-  r->xy[46] = neg[6];
-  r->xy[47] = neg[7];
+  u32 ry3[8];
+  ry3[0] = ry[0];
+  ry3[1] = ry[1];
+  ry3[2] = ry[2];
+  ry3[3] = ry[3];
+  ry3[4] = ry[4];
+  ry3[5] = ry[5];
+  ry3[6] = ry[6];
+  ry3[7] = ry[7];
 
 
   // 5:
@@ -1618,55 +1657,37 @@ DECLSPEC void point_get_coords (PRIVATE_AS secp256k1_t *r, PRIVATE_AS const u32 
   point_add (rx, ry, rz, tx, ty); // 4
   point_add (rx, ry, rz, tx, ty); // 5
 
-  // to affine:
+  // Save Z coordinate for batch inversion later
+  u32 rz5[8];
+  rz5[0] = rz[0];
+  rz5[1] = rz[1];
+  rz5[2] = rz[2];
+  rz5[3] = rz[3];
+  rz5[4] = rz[4];
+  rz5[5] = rz[5];
+  rz5[6] = rz[6];
+  rz5[7] = rz[7];
 
-  inv_mod (rz);
+  // Save X and Y coordinates for 5G
+  u32 rx5[8];
+  rx5[0] = rx[0];
+  rx5[1] = rx[1];
+  rx5[2] = rx[2];
+  rx5[3] = rx[3];
+  rx5[4] = rx[4];
+  rx5[5] = rx[5];
+  rx5[6] = rx[6];
+  rx5[7] = rx[7];
 
-  mul_mod (neg, rz, rz);
-  mul_mod (rx,  rx, neg);
-
-  mul_mod (rz, neg, rz);
-  mul_mod (ry, ry, rz);
-
-  r->xy[48] = rx[0];
-  r->xy[49] = rx[1];
-  r->xy[50] = rx[2];
-  r->xy[51] = rx[3];
-  r->xy[52] = rx[4];
-  r->xy[53] = rx[5];
-  r->xy[54] = rx[6];
-  r->xy[55] = rx[7];
-
-  r->xy[56] = ry[0];
-  r->xy[57] = ry[1];
-  r->xy[58] = ry[2];
-  r->xy[59] = ry[3];
-  r->xy[60] = ry[4];
-  r->xy[61] = ry[5];
-  r->xy[62] = ry[6];
-  r->xy[63] = ry[7];
-
-  // -5:
-
-  neg[0] = ry[0];
-  neg[1] = ry[1];
-  neg[2] = ry[2];
-  neg[3] = ry[3];
-  neg[4] = ry[4];
-  neg[5] = ry[5];
-  neg[6] = ry[6];
-  neg[7] = ry[7];
-
-  sub_mod (neg, p, neg);
-
-  r->xy[64] = neg[0];
-  r->xy[65] = neg[1];
-  r->xy[66] = neg[2];
-  r->xy[67] = neg[3];
-  r->xy[68] = neg[4];
-  r->xy[69] = neg[5];
-  r->xy[70] = neg[6];
-  r->xy[71] = neg[7];
+  u32 ry5[8];
+  ry5[0] = ry[0];
+  ry5[1] = ry[1];
+  ry5[2] = ry[2];
+  ry5[3] = ry[3];
+  ry5[4] = ry[4];
+  ry5[5] = ry[5];
+  ry5[6] = ry[6];
+  ry5[7] = ry[7];
 
 
   // 7:
@@ -1683,44 +1704,199 @@ DECLSPEC void point_get_coords (PRIVATE_AS secp256k1_t *r, PRIVATE_AS const u32 
   point_add (rx, ry, rz, tx, ty); // 6
   point_add (rx, ry, rz, tx, ty); // 7
 
-  // to affine:
+  // Save Z coordinate for batch inversion later (rz7 = rz)
+  u32 rz7[8];
+  rz7[0] = rz[0];
+  rz7[1] = rz[1];
+  rz7[2] = rz[2];
+  rz7[3] = rz[3];
+  rz7[4] = rz[4];
+  rz7[5] = rz[5];
+  rz7[6] = rz[6];
+  rz7[7] = rz[7];
 
-  inv_mod (rz);
+  // Save X and Y coordinates for 7G (rx and ry already contain these)
+  u32 rx7[8];
+  rx7[0] = rx[0];
+  rx7[1] = rx[1];
+  rx7[2] = rx[2];
+  rx7[3] = rx[3];
+  rx7[4] = rx[4];
+  rx7[5] = rx[5];
+  rx7[6] = rx[6];
+  rx7[7] = rx[7];
 
-  mul_mod (neg, rz, rz);
-  mul_mod (rx,  rx, neg);
+  u32 ry7[8];
+  ry7[0] = ry[0];
+  ry7[1] = ry[1];
+  ry7[2] = ry[2];
+  ry7[3] = ry[3];
+  ry7[4] = ry[4];
+  ry7[5] = ry[5];
+  ry7[6] = ry[6];
+  ry7[7] = ry[7];
 
-  mul_mod (rz, neg, rz);
-  mul_mod (ry, ry, rz);
+  // Montgomery's trick: batch inversion of rz3, rz5, rz7
+  // Compute: rz3_rz5_prod = rz3 * rz5
+  u32 rz3_rz5_prod[8];
+  mul_mod (rz3_rz5_prod, rz3, rz5);
 
-  r->xy[72] = rx[0];
-  r->xy[73] = rx[1];
-  r->xy[74] = rx[2];
-  r->xy[75] = rx[3];
-  r->xy[76] = rx[4];
-  r->xy[77] = rx[5];
-  r->xy[78] = rx[6];
-  r->xy[79] = rx[7];
+  // Compute: combined_prod = rz3 * rz5 * rz7
+  u32 combined_prod[8];
+  mul_mod (combined_prod, rz3_rz5_prod, rz7);
 
-  r->xy[80] = ry[0];
-  r->xy[81] = ry[1];
-  r->xy[82] = ry[2];
-  r->xy[83] = ry[3];
-  r->xy[84] = ry[4];
-  r->xy[85] = ry[5];
-  r->xy[86] = ry[6];
-  r->xy[87] = ry[7];
+  // Compute: 1 / (rz3 * rz5 * rz7) - the only expensive inversion (inverted in place)
+  inv_mod (combined_prod);
+
+  // Now compute individual inverses using the inverted product:
+  // rz7_inv = combined_prod * rz3_rz5_prod
+  u32 rz7_inv[8];
+  mul_mod (rz7_inv, combined_prod, rz3_rz5_prod);
+
+  // partial_inv = combined_prod * rz7 = 1 / (rz3 * rz5)
+  u32 partial_inv[8];
+  mul_mod (partial_inv, combined_prod, rz7);
+
+  // rz5_inv = partial_inv * rz3
+  u32 rz5_inv[8];
+  mul_mod (rz5_inv, partial_inv, rz3);
+
+  // rz3_inv = partial_inv * rz5
+  u32 rz3_inv[8];
+  mul_mod (rz3_inv, partial_inv, rz5);
+
+  // Now convert each point from Jacobian to affine coordinates
+  // For 3G:
+  mul_mod (neg, rz3_inv, rz3_inv); // neg is temporary variable (z_inv^2)
+  mul_mod (rx3, rx3, neg);          // x_affine = x * z_inv^2
+
+  mul_mod (rz3_inv, neg, rz3_inv);  // rz3_inv = z_inv^3
+  mul_mod (ry3, ry3, rz3_inv);      // y_affine = y * z_inv^3
+
+  r->xy[24] = rx3[0];
+  r->xy[25] = rx3[1];
+  r->xy[26] = rx3[2];
+  r->xy[27] = rx3[3];
+  r->xy[28] = rx3[4];
+  r->xy[29] = rx3[5];
+  r->xy[30] = rx3[6];
+  r->xy[31] = rx3[7];
+
+  r->xy[32] = ry3[0];
+  r->xy[33] = ry3[1];
+  r->xy[34] = ry3[2];
+  r->xy[35] = ry3[3];
+  r->xy[36] = ry3[4];
+  r->xy[37] = ry3[5];
+  r->xy[38] = ry3[6];
+  r->xy[39] = ry3[7];
+
+  // -3:
+
+  neg[0] = ry3[0];
+  neg[1] = ry3[1];
+  neg[2] = ry3[2];
+  neg[3] = ry3[3];
+  neg[4] = ry3[4];
+  neg[5] = ry3[5];
+  neg[6] = ry3[6];
+  neg[7] = ry3[7];
+
+  sub_mod (neg, p, neg);
+
+  r->xy[40] = neg[0];
+  r->xy[41] = neg[1];
+  r->xy[42] = neg[2];
+  r->xy[43] = neg[3];
+  r->xy[44] = neg[4];
+  r->xy[45] = neg[5];
+  r->xy[46] = neg[6];
+  r->xy[47] = neg[7];
+
+
+  // For 5G:
+  mul_mod (neg, rz5_inv, rz5_inv); // neg is temporary variable (z_inv^2)
+  mul_mod (rx5, rx5, neg);          // x_affine = x * z_inv^2
+
+  mul_mod (rz5_inv, neg, rz5_inv);  // rz5_inv = z_inv^3
+  mul_mod (ry5, ry5, rz5_inv);      // y_affine = y * z_inv^3
+
+  r->xy[48] = rx5[0];
+  r->xy[49] = rx5[1];
+  r->xy[50] = rx5[2];
+  r->xy[51] = rx5[3];
+  r->xy[52] = rx5[4];
+  r->xy[53] = rx5[5];
+  r->xy[54] = rx5[6];
+  r->xy[55] = rx5[7];
+
+  r->xy[56] = ry5[0];
+  r->xy[57] = ry5[1];
+  r->xy[58] = ry5[2];
+  r->xy[59] = ry5[3];
+  r->xy[60] = ry5[4];
+  r->xy[61] = ry5[5];
+  r->xy[62] = ry5[6];
+  r->xy[63] = ry5[7];
+
+  // -5:
+
+  neg[0] = ry5[0];
+  neg[1] = ry5[1];
+  neg[2] = ry5[2];
+  neg[3] = ry5[3];
+  neg[4] = ry5[4];
+  neg[5] = ry5[5];
+  neg[6] = ry5[6];
+  neg[7] = ry5[7];
+
+  sub_mod (neg, p, neg);
+
+  r->xy[64] = neg[0];
+  r->xy[65] = neg[1];
+  r->xy[66] = neg[2];
+  r->xy[67] = neg[3];
+  r->xy[68] = neg[4];
+  r->xy[69] = neg[5];
+  r->xy[70] = neg[6];
+  r->xy[71] = neg[7];
+
+
+  // For 7G:
+  mul_mod (neg, rz7_inv, rz7_inv); // neg is temporary variable (z_inv^2)
+  mul_mod (rx7, rx7, neg);          // x_affine = x * z_inv^2
+
+  mul_mod (rz7_inv, neg, rz7_inv);  // rz7_inv = z_inv^3
+  mul_mod (ry7, ry7, rz7_inv);      // y_affine = y * z_inv^3
+
+  r->xy[72] = rx7[0];
+  r->xy[73] = rx7[1];
+  r->xy[74] = rx7[2];
+  r->xy[75] = rx7[3];
+  r->xy[76] = rx7[4];
+  r->xy[77] = rx7[5];
+  r->xy[78] = rx7[6];
+  r->xy[79] = rx7[7];
+
+  r->xy[80] = ry7[0];
+  r->xy[81] = ry7[1];
+  r->xy[82] = ry7[2];
+  r->xy[83] = ry7[3];
+  r->xy[84] = ry7[4];
+  r->xy[85] = ry7[5];
+  r->xy[86] = ry7[6];
+  r->xy[87] = ry7[7];
 
   // -7:
 
-  neg[0] = ry[0];
-  neg[1] = ry[1];
-  neg[2] = ry[2];
-  neg[3] = ry[3];
-  neg[4] = ry[4];
-  neg[5] = ry[5];
-  neg[6] = ry[6];
-  neg[7] = ry[7];
+  neg[0] = ry7[0];
+  neg[1] = ry7[1];
+  neg[2] = ry7[2];
+  neg[3] = ry7[3];
+  neg[4] = ry7[4];
+  neg[5] = ry7[5];
+  neg[6] = ry7[6];
+  neg[7] = ry7[7];
 
   sub_mod (neg, p, neg);
 

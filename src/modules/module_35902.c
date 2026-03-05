@@ -1,14 +1,6 @@
 /**
  * Author......: See docs/credits.txt
  * License.....: MIT
- *
- * Module 99998: Ethereum Brainwallet (Keccak-256, secp256k1)
- *
- * Attack concept from brainflayer: passphrase -> Keccak256(passphrase) -> private key
- * -> secp256k1 public key -> Keccak256(pubkey[1:64]) -> last 20 bytes -> Ethereum address
- *
- * Input hash format: 40 hex chars representing the 20-byte Ethereum address (without 0x prefix)
- * Example: passphrase "hashcat" -> Keccak256 -> privkey -> uncompressed pubkey -> Keccak256 -> addr
  */
 
 #include "common.h"
@@ -17,38 +9,54 @@
 #include "bitops.h"
 #include "convert.h"
 #include "shared.h"
+#include "memory.h"
 
-static const u32   ATTACK_EXEC    = ATTACK_EXEC_INSIDE_KERNEL;
-static const u32   DGST_POS0      = 0;
-static const u32   DGST_POS1      = 1;
-static const u32   DGST_POS2      = 2;
-static const u32   DGST_POS3      = 3;
-static const u32   DGST_SIZE      = DGST_SIZE_4_5;
-static const u32   HASH_CATEGORY  = HASH_CATEGORY_CRYPTOCURRENCY_WALLET;
-static const char *HASH_NAME      = "Ethereum Brainwallet (Keccak-256, secp256k1)";
-static const u64   KERN_TYPE      = 99998;
-static const u32   OPTI_TYPE      = OPTI_TYPE_ZERO_BYTE
-                                  | OPTI_TYPE_NOT_SALTED;
-static const u64   OPTS_TYPE      = OPTS_TYPE_STOCK_MODULE
-                                  | OPTS_TYPE_PT_GENERATE_LE;
-static const u32   SALT_TYPE      = SALT_TYPE_NONE;
-static const char *ST_PASS        = "hashcat";
-static const char *ST_HASH        = "0000000000000000000000000000000000000000"; /* placeholder: actual Ethereum address depends on kernel computation */
+static const u32   ATTACK_EXEC       = ATTACK_EXEC_INSIDE_KERNEL;
+static const u32   DGST_POS0         = 0;
+static const u32   DGST_POS1         = 1;
+static const u32   DGST_POS2         = 2;
+static const u32   DGST_POS3         = 3;
+static const u32   DGST_SIZE         = DGST_SIZE_4_5;
+static const u32   HASH_CATEGORY     = HASH_CATEGORY_CRYPTOCURRENCY_WALLET;
+static const char *HASH_NAME         = "Ethereum Brainwallet (Keccak-256)";
+static const u64   KERN_TYPE         = 35902;
+static const u32   OPTI_TYPE         = OPTI_TYPE_NOT_SALTED;
+static const u64   OPTS_TYPE         = OPTS_TYPE_STOCK_MODULE
+                                     | OPTS_TYPE_PT_GENERATE_LE;
+static const u32   SALT_TYPE         = SALT_TYPE_NONE;
+static const char *ST_PASS           = "hashcat";
+static const char *ST_HASH           = "0x9c7002ea607c998e062793c420116b66f92421ac";
 
-u32         module_attack_exec    (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ATTACK_EXEC;     }
-u32         module_dgst_pos0      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS0;       }
-u32         module_dgst_pos1      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS1;       }
-u32         module_dgst_pos2      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS2;       }
-u32         module_dgst_pos3      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS3;       }
-u32         module_dgst_size      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_SIZE;       }
-u32         module_hash_category  (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return HASH_CATEGORY;   }
-const char *module_hash_name      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return HASH_NAME;       }
-u64         module_kern_type      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return KERN_TYPE;       }
-u32         module_opti_type      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return OPTI_TYPE;       }
-u64         module_opts_type      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return OPTS_TYPE;       }
-u32         module_salt_type      (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return SALT_TYPE;       }
-const char *module_st_hash        (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ST_HASH;         }
-const char *module_st_pass        (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ST_PASS;         }
+u32         module_attack_exec       (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ATTACK_EXEC;     }
+u32         module_dgst_pos0         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS0;       }
+u32         module_dgst_pos1         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS1;       }
+u32         module_dgst_pos2         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS2;       }
+u32         module_dgst_pos3         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS3;       }
+u32         module_dgst_size         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_SIZE;       }
+u32         module_hash_category     (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return HASH_CATEGORY;   }
+const char *module_hash_name         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return HASH_NAME;       }
+u64         module_kern_type         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return KERN_TYPE;       }
+u32         module_opti_type         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return OPTI_TYPE;       }
+u64         module_opts_type         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return OPTS_TYPE;       }
+u32         module_salt_type         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return SALT_TYPE;       }
+const char *module_st_hash           (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ST_HASH;         }
+const char *module_st_pass           (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ST_PASS;         }
+
+bool module_unstable_warning (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra, MAYBE_UNUSED const hc_device_param_t *device_param)
+{
+  if ((device_param->opencl_platform_vendor_id == VENDOR_ID_APPLE) && (device_param->opencl_device_type & CL_DEVICE_TYPE_GPU))
+  {
+    if (device_param->is_metal == true)
+    {
+      if (strncmp (device_param->device_name, "Intel", 5) == 0)
+      {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED void *digest_buf, MAYBE_UNUSED salt_t *salt, MAYBE_UNUSED void *esalt_buf, MAYBE_UNUSED void *hook_salt_buf, MAYBE_UNUSED hashinfo_t *hash_info, const char *line_buf, MAYBE_UNUSED const int line_len)
 {
@@ -71,27 +79,20 @@ int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSE
     input_len -= 2;
   }
 
-  token.len[0]  = 40;
-  token.attr[0] = TOKEN_ATTR_FIXED_LENGTH
-                | TOKEN_ATTR_VERIFY_HEX;
+  token.len_min[0] = 40;
+  token.len_max[0] = 40;
+  token.attr[0]    = TOKEN_ATTR_VERIFY_LENGTH
+                   | TOKEN_ATTR_VERIFY_HEX;
 
   const int rc_tokenizer = input_tokenizer (input_buf, input_len, &token);
 
   if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
 
-  const u8 *hash_pos = token.buf[0];
-
-  digest[0] = hex_to_u32 (hash_pos +  0);
-  digest[1] = hex_to_u32 (hash_pos +  8);
-  digest[2] = hex_to_u32 (hash_pos + 16);
-  digest[3] = hex_to_u32 (hash_pos + 24);
-  digest[4] = hex_to_u32 (hash_pos + 32);
-
-  digest[0] = byte_swap_32 (digest[0]);
-  digest[1] = byte_swap_32 (digest[1]);
-  digest[2] = byte_swap_32 (digest[2]);
-  digest[3] = byte_swap_32 (digest[3]);
-  digest[4] = byte_swap_32 (digest[4]);
+  digest[0] = hex_to_u32 (input_buf +  0);
+  digest[1] = hex_to_u32 (input_buf +  8);
+  digest[2] = hex_to_u32 (input_buf + 16);
+  digest[3] = hex_to_u32 (input_buf + 24);
+  digest[4] = hex_to_u32 (input_buf + 32);
 
   return (PARSER_OK);
 }
@@ -100,25 +101,8 @@ int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSE
 {
   const u32 *digest = (const u32 *) digest_buf;
 
-  u32 tmp[5];
-
-  tmp[0] = byte_swap_32 (digest[0]);
-  tmp[1] = byte_swap_32 (digest[1]);
-  tmp[2] = byte_swap_32 (digest[2]);
-  tmp[3] = byte_swap_32 (digest[3]);
-  tmp[4] = byte_swap_32 (digest[4]);
-
-  u8 *out_buf = (u8 *) line_buf;
-
-  u32_to_hex (tmp[0], out_buf +  0);
-  u32_to_hex (tmp[1], out_buf +  8);
-  u32_to_hex (tmp[2], out_buf + 16);
-  u32_to_hex (tmp[3], out_buf + 24);
-  u32_to_hex (tmp[4], out_buf + 32);
-
-  const int out_len = 40;
-
-  return out_len;
+  return snprintf (line_buf, line_size, "0x%08x%08x%08x%08x%08x",
+    digest[0], digest[1], digest[2], digest[3], digest[4]);
 }
 
 void module_init (module_ctx_t *module_ctx)
@@ -199,6 +183,6 @@ void module_init (module_ctx_t *module_ctx)
   module_ctx->module_st_hash                  = module_st_hash;
   module_ctx->module_st_pass                  = module_st_pass;
   module_ctx->module_tmp_size                 = MODULE_DEFAULT;
-  module_ctx->module_unstable_warning         = MODULE_DEFAULT;
+  module_ctx->module_unstable_warning         = module_unstable_warning;
   module_ctx->module_warmup_disable           = MODULE_DEFAULT;
 }
