@@ -79,6 +79,27 @@
 #define SECP256K1_GLV_A2_3 0x114ca50f
 #define SECP256K1_GLV_A2_4 0x00000001  // high bit
 
+// Babai rounding constants for GLV scalar decomposition
+// g1 = round(a1 * 2^384 / n): used to compute c1 = (k * g1) >> 384
+// g2 = round(|b1| * 2^384 / n): used to compute c2 = (k * g2) >> 384
+#define SECP256K1_GLV_G1_0 0x45dbb031
+#define SECP256K1_GLV_G1_1 0xe893209a
+#define SECP256K1_GLV_G1_2 0x71e8ca7f
+#define SECP256K1_GLV_G1_3 0x3daa8a14
+#define SECP256K1_GLV_G1_4 0x9284eb15
+#define SECP256K1_GLV_G1_5 0xe86c90e4
+#define SECP256K1_GLV_G1_6 0xa7d46bcd
+#define SECP256K1_GLV_G1_7 0x3086d221
+
+#define SECP256K1_GLV_G2_0 0x8ac47f71
+#define SECP256K1_GLV_G2_1 0x1571b4ae
+#define SECP256K1_GLV_G2_2 0x9df506c6
+#define SECP256K1_GLV_G2_3 0x221208ac
+#define SECP256K1_GLV_G2_4 0x0abfe4c4
+#define SECP256K1_GLV_G2_5 0x6f547fa9
+#define SECP256K1_GLV_G2_6 0x010e8828
+#define SECP256K1_GLV_G2_7 0xe4437ed6
+
 // the base point G in compressed form for transform_public
 // G = 02 79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798
 #define SECP256K1_G_PARITY 0x00000002
@@ -277,7 +298,22 @@ DECLSPEC void point_mul (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *k, SECP256K1_T
 DECLSPEC void set_precomputed_basepoint_g (PRIVATE_AS secp256k1_t *r);
 
 // GLV endomorphism: decompose scalar k into (k1, k2) s.t. k = k1 + k2*lambda mod n
-// k1, k2 are 128-bit signed scalars (stored as 5 u32: [0..3] value, [4] sign flag)
+// using Babai nearest-plane rounding with precomputed constants g1, g2.
+// Output k1, k2 are signed 160-bit scalars (stored as 6 u32 each):
+//   [0..4] = 160-bit magnitude (little-endian u32 words, only lower ~129 bits used)
+//   [5]    = sign flag: 0 = positive, 1 = negative
 DECLSPEC void glv_decompose (PRIVATE_AS const u32 *k, PRIVATE_AS u32 *k1, PRIVATE_AS u32 *k2);
+
+// GLV point multiplication: compute k*G using GLV endomorphism for ~2x speedup.
+// Decomposes k into k1+k2*lambda and computes k1*G + k2*phi(G) simultaneously.
+// k: 8 u32 (256-bit scalar), tmps: precomputed basepoint table
+// Output: affine (x, y) coordinates (each 8 u32 words)
+DECLSPEC void point_mul_glv_xy (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_t *tmps);
+
+// Batch modular inversion using Montgomery's trick.
+// Inverts all n field elements in-place using only 1 inv_mod call.
+// elems: array of n pointers to 8-u32 field elements
+// prods: temporary buffer of (n+1)*8 u32 words (for intermediate products)
+DECLSPEC void batch_inv_mod (PRIVATE_AS u32 **elems, PRIVATE_AS u32 *prods, const u32 n);
 
 #endif // INC_ECC_SECP256K1_H
