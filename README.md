@@ -55,7 +55,7 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 
 ---
 
-### Модули Brainwallet (35900–35904) ###
+### Модули Brainwallet (35900–35912) ###
 
 #### Описание модулей ####
 
@@ -66,16 +66,19 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 | 35902 | Ethereum Brainwallet (Keccak-256) | Keccak-256 | Keccak256(uncompressed_pubkey)[12:] → 0x hex |
 | 35903 | Ethereum Brainwallet (SHA-256) | SHA-256 | Keccak256(uncompressed_pubkey)[12:] → 0x hex |
 | 35904 | Ethereum Brainwallet (SHA3-256) | SHA3-256 | Keccak256(uncompressed_pubkey)[12:] → 0x hex |
+| 35910 | Bitcoin Brainwallet (BLAKE2b-256, P2PKH/Bech32/P2SH) | BLAKE2b-256 | RIPEMD160(SHA256(compressed_pubkey)) → P2PKH / P2SH / Bech32 |
+| 35912 | Ethereum Brainwallet (BLAKE2s-256) | BLAKE2s-256 | Keccak256(uncompressed_pubkey)[12:] → 0x hex |
 
 #### Принцип работы ####
 
 Все модули реализуют атаку на «мозговые кошельки» (brainwallet):
 
-1. Парольная фраза хешируется выбранным алгоритмом (SHA-256, SHA3-256 или Keccak-256) → получается 256-битный приватный ключ.
+1. Парольная фраза хешируется выбранным алгоритмом (SHA-256, SHA3-256, Keccak-256, BLAKE2b-256 или BLAKE2s-256) → получается 256-битный приватный ключ.
 2. По приватному ключу вычисляется точка на эллиптической кривой secp256k1 (публичный ключ).
 3. Из публичного ключа выводится адрес кошелька:
-   - **Bitcoin** (35900, 35901): Сжатый публичный ключ (33 байта) → SHA-256 → RIPEMD-160 → Base58Check с версией 0x00.
-   - **Ethereum** (35902, 35903, 35904): Несжатый публичный ключ (64 байта, без префикса 0x04) → Keccak-256 → последние 20 байт → адрес в формате `0x...`.
+   - **Bitcoin P2PKH/P2SH** (35900, 35901, 35910): Сжатый публичный ключ (33 байта) → SHA-256 → RIPEMD-160 → Base58Check с версией 0x00 (P2PKH) или 0x05 (P2SH).
+   - **Bitcoin Bech32** (35910): Сжатый публичный ключ → SHA-256 → RIPEMD-160 → Bech32-кодирование (адрес `bc1q...`).
+   - **Ethereum** (35902, 35903, 35904, 35912): Несжатый публичный ключ (64 байта, без префикса 0x04) → Keccak-256 → последние 20 байт → адрес в формате `0x...`.
 4. Полученный адрес сравнивается с целевым адресом (или списком адресов) из хеш-файла.
 
 #### Формат базы адресов (хеш-файл) ####
@@ -97,7 +100,22 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 - Адрес должен начинаться с `1` (P2PKH, mainnet).
 - Встроенная проверка Base58Check контрольной суммы.
 
-**Для Ethereum (режимы 35902, 35903, 35904):**
+**Для Bitcoin (режим 35910 — P2PKH / P2SH / Bech32):**
+
+Модуль 35910 поддерживает три формата Bitcoin-адресов в одном хеш-файле (можно смешивать):
+
+```
+1BKkWJS4VZKTr9fi9g5UhQ8Y1EGsNuor76
+3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
+bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq
+```
+
+- **P2PKH** (`1...`): Base58Check, версия 0x00, длина 26–34 символа.
+- **P2SH** (`3...`): Base58Check, версия 0x05, длина ~34 символа.
+- **Bech32** (`bc1q...`): нативный SegWit v0, длина 42 символа.
+- Встроенная проверка контрольной суммы для всех трёх форматов.
+
+**Для Ethereum (режимы 35902, 35903, 35904, 35912):**
 
 Каждая строка содержит один Ethereum-адрес в шестнадцатеричном формате с префиксом `0x`:
 
@@ -281,6 +299,68 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 ```
 Перебор числовых фраз длиной от 4 до 8 цифр.
 
+##### Режим 35910 — Bitcoin Brainwallet (BLAKE2b-256, P2PKH/Bech32/P2SH) #####
+
+Парольная фраза хешируется через BLAKE2b-256 для получения приватного ключа Bitcoin. Поддерживаются форматы адресов P2PKH (`1...`), P2SH (`3...`) и Bech32 (`bc1q...`).
+
+**Пример 1: Атака по словарю (P2PKH-адреса)**
+```bash
+./hashcat -m 35910 -a 0 bitcoin_addresses_p2pkh.txt wordlist.txt
+```
+
+**Пример 2: Атака по словарю (Bech32-адреса)**
+```bash
+./hashcat -m 35910 -a 0 bitcoin_addresses_bech32.txt wordlist.txt
+```
+
+**Пример 3: Атака по маске (брутфорс)**
+```bash
+./hashcat -m 35910 -a 3 bitcoin_addresses.txt ?a?a?a?a?a?a
+```
+Перебор всех комбинаций из 6 печатных ASCII-символов.
+
+**Пример 4: Атака по словарю с правилами**
+```bash
+./hashcat -m 35910 -a 0 bitcoin_addresses.txt wordlist.txt -r rules/best64.rule
+```
+
+**Пример 5: Атака по маске с инкрементом длины**
+```bash
+./hashcat -m 35910 -a 3 bitcoin_addresses.txt ?l?l?l?l?l?l?l?l --increment --increment-min 4
+```
+Перебор строчных слов длиной от 4 до 8 символов.
+
+##### Режим 35912 — Ethereum Brainwallet (BLAKE2s-256) #####
+
+Парольная фраза хешируется через BLAKE2s-256 для получения приватного ключа Ethereum.
+
+**Пример 1: Атака по словарю**
+```bash
+./hashcat -m 35912 -a 0 ethereum_addresses.txt wordlist.txt
+```
+
+**Пример 2: Атака по маске**
+```bash
+./hashcat -m 35912 -a 3 ethereum_addresses.txt ?a?a?a?a?a?a?a
+```
+Перебор всех 7-символьных парольных фраз.
+
+**Пример 3: Атака по словарю с правилами**
+```bash
+./hashcat -m 35912 -a 0 ethereum_addresses.txt wordlist.txt -r rules/best64.rule
+```
+
+**Пример 4: Комбинаторная атака**
+```bash
+./hashcat -m 35912 -a 1 ethereum_addresses.txt words_part1.txt words_part2.txt
+```
+
+**Пример 5: Атака по маске с инкрементом длины**
+```bash
+./hashcat -m 35912 -a 3 ethereum_addresses.txt ?l?l?l?l?l?l?l?l --increment --increment-min 3
+```
+Перебор строчных слов длиной от 3 до 8 символов.
+
 #### Гибридные атаки (Hybrid Attacks) ####
 
 Гибридные атаки комбинируют словарь с маской, что позволяет эффективно перебирать пароли, состоящие из запоминаемого слова и предсказуемого суффикса/префикса (например, год, PIN-код, спецсимвол).
@@ -332,6 +412,18 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 ./hashcat -m 35904 -a 6 ethereum_addresses.txt wordlist.txt -1 12 ?d?d?1?d
 ```
 
+**Режим 35910 (Bitcoin BLAKE2b-256):**
+```bash
+# Пример: Слово + год (2020-2026)
+./hashcat -m 35910 -a 6 bitcoin_addresses.txt wordlist.txt 202?d
+```
+
+**Режим 35912 (Ethereum BLAKE2s-256):**
+```bash
+# Пример: Слово + 4 цифры
+./hashcat -m 35912 -a 6 ethereum_addresses.txt wordlist.txt ?d?d?d?d
+```
+
 **Режим -a 7 (Hybrid Mask + Wordlist)** — добавляет маску слева от слова:
 
 ```
@@ -350,6 +442,18 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 ```bash
 # Пример: Спецсимвол + слово
 ./hashcat -m 35902 -a 7 ethereum_addresses.txt ?s wordlist.txt
+```
+
+**Режим 35910 (Bitcoin BLAKE2b-256):**
+```bash
+# Пример: Год + слово
+./hashcat -m 35910 -a 7 bitcoin_addresses.txt ?d?d?d?d wordlist.txt
+```
+
+**Режим 35912 (Ethereum BLAKE2s-256):**
+```bash
+# Пример: Спецсимвол + слово
+./hashcat -m 35912 -a 7 ethereum_addresses.txt ?s wordlist.txt
 ```
 
 **Когда использовать гибридные атаки:**
@@ -379,6 +483,8 @@ In order to maintain the quality and integrity of the **hashcat** source tree, a
 | 35902 | `0x9c7002ea607c998e062793c420116b66f92421ac` |
 | 35903 | `0xacc6378af93c8cdb42d429625cd531038531a1db` |
 | 35904 | `0xb238859ca7d4d8fa1af573c6e522b4c52fd58f0a` |
+| 35910 | `1BKkWJS4VZKTr9fi9g5UhQ8Y1EGsNuor76` |
+| 35912 | `0x4d10f53d02f5440505e6666696405a21ed910326` |
 
 ---
 
