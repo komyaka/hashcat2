@@ -32,6 +32,53 @@
 #define SECP256K1_N6 0xffffffff
 #define SECP256K1_N7 0xffffffff
 
+// GLV endomorphism constants for scalar decomposition
+// phi(x,y) = (beta*x mod p, y), where beta is a cube root of 1 in Fp
+// lambda is a cube root of 1 in Fn (order of curve)
+// k = k1 + k2*lambda (mod n), |k1|,|k2| < 2^128
+
+// lambda = 0x5363AD4CC05C30E0A5261C028812645A122E22EA20816678DF02967C1B23BD72
+#define SECP256K1_LAMBDA0 0x1b23bd72
+#define SECP256K1_LAMBDA1 0xdf02967c
+#define SECP256K1_LAMBDA2 0x20816678
+#define SECP256K1_LAMBDA3 0x122e22ea
+#define SECP256K1_LAMBDA4 0x8812645a
+#define SECP256K1_LAMBDA5 0xa5261c02
+#define SECP256K1_LAMBDA6 0xc05c30e0
+#define SECP256K1_LAMBDA7 0x5363ad4c
+
+// beta = 0x7AE96A2B657C07106E64479EAC3434E99CF0497512F58995C1396C28719501EE
+#define SECP256K1_BETA0 0x719501ee
+#define SECP256K1_BETA1 0xc1396c28
+#define SECP256K1_BETA2 0x12f58995
+#define SECP256K1_BETA3 0x9cf04975
+#define SECP256K1_BETA4 0xac3434e9
+#define SECP256K1_BETA5 0x6e64479e
+#define SECP256K1_BETA6 0x657c0710
+#define SECP256K1_BETA7 0x7ae96a2b
+
+// Precomputed GLV scalar splitting constants (a1, b1, a2, b2)
+// Reference: https://link.springer.com/article/10.1007/s13389-012-0019-2
+// a1 =  0x3086d221a7d46bcde86c90e49284eb15  (128-bit)
+// b1 = -0xe4437ed6010e88286f547fa90abfe4c3  (128-bit, negative)
+// a2 =  0x114ca50f7a8e2f3f657c1108d9d44cfd8 (129-bit)
+// b2 =  0x3086d221a7d46bcde86c90e49284eb15  (128-bit, same as a1)
+#define SECP256K1_GLV_A1_0 0x9284eb15
+#define SECP256K1_GLV_A1_1 0xe86c90e4
+#define SECP256K1_GLV_A1_2 0xa7d46bcd
+#define SECP256K1_GLV_A1_3 0x3086d221
+
+#define SECP256K1_GLV_B1_0 0x0abfe4c3
+#define SECP256K1_GLV_B1_1 0x6f547fa9
+#define SECP256K1_GLV_B1_2 0x010e8828
+#define SECP256K1_GLV_B1_3 0xe4437ed6
+
+#define SECP256K1_GLV_A2_0 0xd9d44cfd
+#define SECP256K1_GLV_A2_1 0x657c1108
+#define SECP256K1_GLV_A2_2 0x7a8e2f3f
+#define SECP256K1_GLV_A2_3 0x114ca50f
+#define SECP256K1_GLV_A2_4 0x00000001  // high bit
+
 // the base point G in compressed form for transform_public
 // G = 02 79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798
 #define SECP256K1_G_PARITY 0x00000002
@@ -228,5 +275,9 @@ DECLSPEC void point_mul_xy (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS c
 DECLSPEC void point_mul (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_t *tmps);
 
 DECLSPEC void set_precomputed_basepoint_g (PRIVATE_AS secp256k1_t *r);
+
+// GLV endomorphism: decompose scalar k into (k1, k2) s.t. k = k1 + k2*lambda mod n
+// k1, k2 are 128-bit signed scalars (stored as 5 u32: [0..3] value, [4] sign flag)
+DECLSPEC void glv_decompose (PRIVATE_AS const u32 *k, PRIVATE_AS u32 *k1, PRIVATE_AS u32 *k2);
 
 #endif // INC_ECC_SECP256K1_H
