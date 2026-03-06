@@ -843,9 +843,12 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
   u32 tmp[16] = { 0 };
   u32 c = 0, c2 = 0;
 
+  /* secp256k1: p = 2^256 - 2^32 - 977 where 977 = 0x3d1.
+   * Reduction multiplies high words by omega = 2^32 + 977 (i.e., 0x1_000003d1).
+   * First pass: multiply t[8..15] by 0x03d1 (low part of omega). */
   for (u32 i = 0, j = 8; i < 8; i++, j++)
   {
-    u64 pp = ((u64) 0x03d1) * t[j] + c;
+    u64 pp = ((u64) 0x03d1) * t[j] + c; /* 0x03d1 = 977 (secp256k1 prime constant) */
     tmp[i] = (u32) pp;
     c = (u32) (pp >> 32);
   }
@@ -854,9 +857,10 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
   tmp[9] = c;
   c  = add (r, t, tmp);
 
+  /* Second pass: multiply overflow by 0x3d1 = 977 again for carry correction */
   for (u32 i = 0, j = 8; i < 8; i++, j++)
   {
-    u64 pp = ((u64) 0x3d1) * tmp[j] + c2;
+    u64 pp = ((u64) 0x3d1) * tmp[j] + c2; /* 0x3d1 = 977 (secp256k1 prime constant) */
     t[i] = (u32) pp;
     c2 = (u32) (pp >> 32);
   }
@@ -2869,77 +2873,43 @@ DECLSPEC void point_mul_glv_xy (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
   /* Initialize R at the point at infinity using the first non-zero bit */
   u32 rx_j[8], ry_j[8], rz_j[8];
 
-  /* Check bit 128 (the top word k1v[4] / k2v[4]) first to initialize R */
-  u32 bit1 = (k1v[4] >> 0) & 1; /* bit 128 of k1 = bit 0 of k1v[4] */
-  u32 bit2 = (k2v[4] >> 0) & 1; /* bit 128 of k2 = bit 0 of k2v[4] */
-
-  /* Set up initial projective point: use the first 1-bit to initialize */
-  /* Initialize as point at infinity using a sentinel approach */
-  /* Use Jacobian z=0 trick (z=0 means infinity) - but our point_add doesn't handle this */
-  /* Instead, scan for first set bit and initialize R there */
-
-  /* For simplicity, always initialize R = G_point if bit1=1, else phi_point, etc. */
-  /* Then process the remaining bits */
+  /*
+   * Scan bits of k1 and k2 from the highest position (bit 128) down to 0.
+   * Each scalar is at most 129 bits (5 u32 words with word[4] = 0 or 1).
+   * We scan bit 128 (word[4] bit 0) plus bits 127..0 (words 0..3), giving 129 positions.
+   *
+   * On the first non-zero bit pair we initialize R; thereafter we double-and-add.
+   * Three cases on initialization: both bits set → G + phi(G), only k1 bit → G, only k2 → phi(G).
+   */
 
   u32 initialized = 0;
 
-  /* Process bit 128 (word [4] bit 0) */
-  if (bit1 && bit2)
+  for (int bit_pos = 128; bit_pos >= 0; bit_pos--)
   {
-    /* R = G + phi(G) */
-    for (u32 i = 0; i < 8; i++) rx_j[i] = G_x[i];
-    for (u32 i = 0; i < 8; i++) ry_j[i] = G_ay[i];
-    rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
-    point_add (rx_j, ry_j, rz_j, phi_x, phi_ay);
-    initialized = 1;
-  }
-  else if (bit1)
-  {
-    for (u32 i = 0; i < 8; i++) rx_j[i] = G_x[i];
-    for (u32 i = 0; i < 8; i++) ry_j[i] = G_ay[i];
-    rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
-    initialized = 1;
-  }
-  else if (bit2)
-  {
-    for (u32 i = 0; i < 8; i++) rx_j[i] = phi_x[i];
-    for (u32 i = 0; i < 8; i++) ry_j[i] = phi_ay[i];
-    rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
-    initialized = 1;
-  }
-
-  /* Process bits 127 down to 0 */
-  for (int bit_pos = 127; bit_pos >= 0; bit_pos--)
-  {
-    u32 word_idx = (u32) bit_pos >> 5;   /* which u32 word (0..3) */
+    u32 word_idx = (u32) bit_pos >> 5;   /* 0..4: which u32 word of k1v/k2v */
     u32 bit_idx  = (u32) bit_pos & 0x1f; /* which bit within that word */
 
-    bit1 = (k1v[word_idx] >> bit_idx) & 1;
-    bit2 = (k2v[word_idx] >> bit_idx) & 1;
+    u32 bit1 = (k1v[word_idx] >> bit_idx) & 1;
+    u32 bit2 = (k2v[word_idx] >> bit_idx) & 1;
 
     if (!initialized)
     {
-      /* Still looking for first non-zero bit to initialize R */
-      if (bit1 && bit2)
+      /* Find the first non-zero bit to set the initial projective point R. */
+      if (bit1 || bit2)
       {
-        for (u32 i = 0; i < 8; i++) rx_j[i] = G_x[i];
-        for (u32 i = 0; i < 8; i++) ry_j[i] = G_ay[i];
+        if (bit1)
+        {
+          for (u32 i = 0; i < 8; i++) rx_j[i] = G_x[i];
+          for (u32 i = 0; i < 8; i++) ry_j[i] = G_ay[i];
+        }
+        else /* bit2 only */
+        {
+          for (u32 i = 0; i < 8; i++) rx_j[i] = phi_x[i];
+          for (u32 i = 0; i < 8; i++) ry_j[i] = phi_ay[i];
+        }
         rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
-        point_add (rx_j, ry_j, rz_j, phi_x, phi_ay);
-        initialized = 1;
-      }
-      else if (bit1)
-      {
-        for (u32 i = 0; i < 8; i++) rx_j[i] = G_x[i];
-        for (u32 i = 0; i < 8; i++) ry_j[i] = G_ay[i];
-        rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
-        initialized = 1;
-      }
-      else if (bit2)
-      {
-        for (u32 i = 0; i < 8; i++) rx_j[i] = phi_x[i];
-        for (u32 i = 0; i < 8; i++) ry_j[i] = phi_ay[i];
-        rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
+        /* If both bits are set, also add the second point */
+        if (bit1 && bit2) point_add (rx_j, ry_j, rz_j, phi_x, phi_ay);
         initialized = 1;
       }
       continue;
@@ -2948,9 +2918,9 @@ DECLSPEC void point_mul_glv_xy (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
     /* Always double */
     point_double (rx_j, ry_j, rz_j);
 
-    /* Add G contribution */
+    /* Add G contribution if k1 bit is set */
     if (bit1) point_add (rx_j, ry_j, rz_j, G_x,   G_ay);
-    /* Add phi(G) contribution */
+    /* Add phi(G) contribution if k2 bit is set */
     if (bit2) point_add (rx_j, ry_j, rz_j, phi_x,  phi_ay);
   }
 
@@ -3013,14 +2983,11 @@ DECLSPEC void batch_inv_mod (PRIVATE_AS u32 **elems, PRIVATE_AS u32 *prods, cons
     u32 tmp[8];
     mul_mod (tmp, inv, prefix);
 
-    /* Update inv: inv = inv * elems[i-1] (the original value, before overwrite) */
-    u32 tmp2[8];
-    mul_mod (tmp2, inv, orig);
+    /* Update inv: inv = inv * elems[i-1] (original value, before overwrite) */
+    mul_mod (inv, inv, orig);
 
     /* Write the inverse back */
     for (u32 j = 0; j < 8; j++) orig[j] = tmp[j];
-
-    for (u32 j = 0; j < 8; j++) inv[j] = tmp2[j];
   }
 }
 

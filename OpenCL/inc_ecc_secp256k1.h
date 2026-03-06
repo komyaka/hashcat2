@@ -73,11 +73,13 @@
 #define SECP256K1_GLV_B1_2 0x010e8828
 #define SECP256K1_GLV_B1_3 0xe4437ed6
 
-#define SECP256K1_GLV_A2_0 0xd9d44cfd
-#define SECP256K1_GLV_A2_1 0x657c1108
-#define SECP256K1_GLV_A2_2 0x7a8e2f3f
-#define SECP256K1_GLV_A2_3 0x114ca50f
-#define SECP256K1_GLV_A2_4 0x00000001  // high bit
+// a2 = 0x114ca50f7a8e2f3f657c1108d9d44cfd8 (129-bit), stored as 5 u32 words (little-endian).
+// Satisfies the GLV lattice property: a1*a1 + a2*|b1| = n.
+#define SECP256K1_GLV_A2_0 0x9d44cfd8
+#define SECP256K1_GLV_A2_1 0x57c1108d
+#define SECP256K1_GLV_A2_2 0xa8e2f3f6
+#define SECP256K1_GLV_A2_3 0x14ca50f7
+#define SECP256K1_GLV_A2_4 0x00000001  // high bit (bit 128)
 
 // Babai rounding constants for GLV scalar decomposition
 // g1 = round(a1 * 2^384 / n): used to compute c1 = (k * g1) >> 384
