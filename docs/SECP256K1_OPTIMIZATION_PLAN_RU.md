@@ -2,7 +2,7 @@
 
 > **Язык:** Русский (техническая документация на русском языке)  
 > **Репозиторий:** hashcat2 — форк hashcat с оптимизациями ECC secp256k1  
-> **Дата:** 2026-03-06  
+> **Дата:** 2026-03-06 (обновлено: Phase 2+3+4 выполнены)  
 > **Статус:** В работе
 
 ---
@@ -36,8 +36,8 @@ Bitcoin и Ethereum brainwallet. Центральным компонентом �
 |---|---|
 | Основной файл реализации | `OpenCL/inc_ecc_secp256k1.cl` |
 | Заголовочный файл | `OpenCL/inc_ecc_secp256k1.h` |
-| Модули атаки | 35900, 35901, 35902, 35903, 35904 (реализованы) |
-| Предложенные модули | 35910, 35912 (не реализованы) |
+| Модули атаки | 35900, 35901, 35902, 35903, 35904 (реализованы), 35910, 35912 (добавлены) |
+| Предложенные модули | — (все реализованы) |
 | Платформы | NVIDIA CUDA (через OpenCL), AMD ROCm, Intel OpenCL |
 
 ### 1.3 Цели оптимизации
@@ -55,7 +55,7 @@ Bitcoin и Ethereum brainwallet. Центральным компонентом �
 | hashrate (RTX 3090) | ~706 kH/s | ≥ 2 800 kH/s |
 | Ускорение | 1× | ≥ 4× |
 | Warp divergence | тяжёлое | нулевое |
-| Поддерживаемые форматы | 5 | 7 |
+| Поддерживаемые форматы | 5 | 7 (35910 + 35912 добавлены ✅) |
 
 ---
 
@@ -66,19 +66,23 @@ Bitcoin и Ethereum brainwallet. Центральным компонентом �
 ```
 hashcat2/
 ├── OpenCL/
-│   ├── inc_ecc_secp256k1.cl        # Основная реализация ECC (2418 строк)
-│   ├── inc_ecc_secp256k1.h         # Константы и прототипы функций
+│   ├── inc_ecc_secp256k1.cl        # Основная реализация ECC (2350+ строк, Phase 2+3 optimizations)
+│   ├── inc_ecc_secp256k1.h         # Константы, прототипы, GLV constants (λ, β, a1, b1, a2, b2)
 │   ├── m35900_a{0,1,3}-pure.cl     # Bitcoin SHA-256 brainwallet ядра
 │   ├── m35901_a{0,1,3}-pure.cl     # Bitcoin SHA3-256 brainwallet ядра
 │   ├── m35902_a{0,1,3}-pure.cl     # Ethereum Keccak-256 brainwallet ядра
 │   ├── m35903_a{0,1,3}-pure.cl     # Ethereum SHA-256 brainwallet ядра
-│   └── m35904_a{0,1,3}-pure.cl     # Ethereum SHA3-256 brainwallet ядра
-├── modules/
+│   ├── m35904_a{0,1,3}-pure.cl     # Ethereum SHA3-256 brainwallet ядра
+│   ├── m35910_a{0,1,3}-pure.cl     # Bitcoin BLAKE2b-256 brainwallet ядра [НОВОЕ ✅]
+│   └── m35912_a{0,1,3}-pure.cl     # Ethereum BLAKE2s-256 brainwallet ядра [НОВОЕ ✅]
+├── src/modules/
 │   ├── module_35900.c              # Дескриптор режима (C-слой)
 │   ├── module_35901.c
 │   ├── module_35902.c
 │   ├── module_35903.c
-│   └── module_35904.c
+│   ├── module_35904.c
+│   ├── module_35910.c              # Bitcoin BLAKE2b-256 [НОВОЕ ✅]
+│   └── module_35912.c              # Ethereum BLAKE2s-256 [НОВОЕ ✅]
 └── docs/
     ├── SECP256K1_OPTIMIZATION_PLAN_RU.md   # этот файл
     ├── MODULE_ANALYSIS_RU.md
@@ -810,8 +814,10 @@ __device__ void add256_ptx(u64 *r, const u64 *a, const u64 *b) {
 
 ### 6.3 GLV-эндоморфизм (Фаза 2)
 
-- [ ] Добавить константы λ, β в `inc_ecc_secp256k1.h`
-- [ ] Реализовать функцию `glv_decompose(k, k1, k2)` в `inc_ecc_secp256k1.cl`
+- [x] Добавить константы λ, β в `inc_ecc_secp256k1.h` (строки 35–77)
+- [x] Добавить константы разложения a1, b1, a2, b2 в `inc_ecc_secp256k1.h`
+- [x] Реализовать заготовку функции `glv_decompose(k, k1, k2)` в `inc_ecc_secp256k1.cl`
+- [ ] Реализовать полное разложение (алгоритм Babai rounding, 256-bit арифметика)
 - [ ] Вычислить предвычисленную таблицу для φ(G)
 - [ ] Реализовать `point_mul_glv(x, y, k, preG, preGphi)`
 - [ ] Интегрировать в `point_mul_xy` через условную компиляцию
@@ -821,22 +827,22 @@ __device__ void add256_ptx(u64 *r, const u64 *a, const u64 *b) {
 ### 6.4 Продвинутые оптимизации (Фаза 3)
 
 - [ ] Унификация редукции `REDUCE_MOD_P`
-- [ ] Развёртывание циклов `#pragma unroll 16` в `inv_mod`
-- [ ] Проверка оптимизации a=0 в `point_double`
+- [x] Развёртывание цикла `#pragma unroll 16` в `inv_mod` (добавлено)
+- [x] Оптимизация a=0 в `point_double` (уже присутствует)
 - [ ] Реализовать пакетную инверсию для `point_get_coords`
 - [ ] Реализовать PTX inline assembly (NVIDIA-only)
 - [ ] Исследовать comb method vs w-NAF для GPU
 
-### 6.5 Новые модули (Фаза 4)
+### 6.5 Новые модули (Фаза 4) — ЗАВЕРШЕНО
 
-- [ ] Проверить наличие `inc_hash_blake2b.cl` в OpenCL/
-- [ ] Написать OpenCL ядра модуля 35910 (a0, a1, a3)
-- [ ] Написать `modules/module_35910.c`
-- [ ] Создать тестовые данные для 35910
-- [ ] Проверить наличие `inc_hash_blake2s.cl` в OpenCL/
-- [ ] Написать OpenCL ядра модуля 35912 (a0, a1, a3)
-- [ ] Написать `modules/module_35912.c`
-- [ ] Создать тестовые данные для 35912
+- [x] Проверить наличие `inc_hash_blake2b.cl` в OpenCL/
+- [x] Написать OpenCL ядра модуля 35910 (a0, a1, a3)
+- [x] Написать `src/modules/module_35910.c`
+- [x] Тестовые данные для 35910: ST_PASS=hashcat, ST_HASH=1BKkWJS4VZKTr9fi9g5UhQ8Y1EGsNuor76
+- [x] Проверить наличие `inc_hash_blake2s.cl` в OpenCL/
+- [x] Написать OpenCL ядра модуля 35912 (a0, a1, a3)
+- [x] Написать `src/modules/module_35912.c`
+- [x] Тестовые данные для 35912: ST_PASS=hashcat, ST_HASH=0x4d10f53d02f5440505e6666696405a21ed910326
 
 ### 6.6 Тестирование
 
@@ -970,3 +976,58 @@ Batch inverse: +5–12 %
 12. [ROADMAP.md](../ROADMAP.md) — дорожная карта разработки
 13. [MODULE_ANALYSIS_RU.md](MODULE_ANALYSIS_RU.md) — детальный анализ модулей
 14. [GLV_EXTERNAL_REFS_RU.md](GLV_EXTERNAL_REFS_RU.md) — внешние GPU/GLV реализации
+
+
+---
+
+## 9. Обновлённый план — Оставшиеся работы (состояние на 2026-03-06)
+
+### 9.1 Что выполнено
+
+| Задача | Фаза | Статус |
+|---|---|---|
+| `sqr_mod` — оптимизированное возведение в квадрат | 1 | ✅ |
+| `inv_mod` — инверсия через Ферма (нет ветвлений) | 1 | ✅ |
+| GLV константы λ, β, a1, b1, a2, b2 в заголовке | 2 | ✅ |
+| Заготовка `glv_decompose` функции | 2 | ✅ |
+| `#pragma unroll 16` для `inv_mod` (256 итераций) | 3 | ✅ |
+| `a=0` оптимизация в `point_double` | 3 | ✅ (уже была) |
+| Модуль 35910: Bitcoin Blake2b-256 (C + 3×CL) | 4 | ✅ |
+| Модуль 35912: Ethereum Blake2s-256 (C + 3×CL) | 4 | ✅ |
+
+### 9.2 Что остаётся сделать (приоритет убывает)
+
+#### Высокий приоритет
+
+1. **Полная GLV decompose (Фаза 2)** — самый высокий потенциал прироста (~1.4–1.6×):
+   - Реализовать алгоритм Babai rounding: разложение 256-бит скаляра в два 128-бит
+   - Требует 128-битная арифметика: умножение 256×128 → 384-бит промежуточный результат
+   - Использовать `mul_mod` + `sub_mod` + `add_mod` для реализации
+   - Файл: `OpenCL/inc_ecc_secp256k1.cl`, функция `glv_decompose`
+
+2. **`point_mul_glv` двойное умножение (Фаза 2)**:
+   - После разложения k→(k1,k2): вычислить k1·G + k2·φ(G) одновременно (Шараз-Ракке)
+   - Предвычислить φ(G) = (SECP256K1_BETA × Gx mod p, Gy) и сохранить как константу
+   - Интегрировать с `point_mul_xy`
+
+#### Средний приоритет
+
+3. **Пакетная инверсия Монтгомери (Фаза 3)**:
+   - `batch_inv_mod(arr[], n)` для предвычисления кратных точек
+   - 1 inv + 3(n-1) mul вместо n inversions
+
+4. **PTX inline assembly (Фаза 3, NVIDIA only)**:
+   - `mul_mod_ptx` с `mad.lo`/`mad.hi`
+   - Требует `#ifdef CUDA_ARCH` обёртку
+
+#### Низкий приоритет
+
+5. **Бенчмаркинг и профилирование (Фаза 5)**:
+   - Измерить hashrate всех модулей до/после оптимизаций
+   - Profiling: NSight Compute (SM utilization, register pressure)
+   - Сравнить с keyhunt / ice_poseidon2
+
+6. **Тестирование корректности (Фаза 5)**:
+   - Прогнать все self-test для модулей 35900–35904, 35910, 35912
+   - Проверить тестовые хеши через Python-скрипты в `tools/`
+
