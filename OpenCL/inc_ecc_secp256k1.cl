@@ -745,88 +745,105 @@ DECLSPEC void mul_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS co
 
 /*
  * PTX-optimized field multiplication for NVIDIA GPUs.
- * Uses mad.lo.cc / madc.hi.cc PTX instructions for better pipelining.
- * Falls back to the standard mul_mod implementation on non-NVIDIA platforms.
- * This function is identical in behavior to mul_mod but uses PTX for performance.
+ * Uses mad.lo.cc / madc.hi PTX instructions to accumulate the 256-bit schoolbook
+ * product row by row, then applies the secp256k1 field reduction.
+ *
+ * Carry-chain note: each row processes a[i]*b[0..7] using a sequence of
+ *   mad.lo.cc (low half, sets CC) / madc.hi (high half, consumes CC).
+ * The carry out of the hi-half instruction for each intermediate column is
+ * absorbed by the lo-half instruction of the next column (which also sets CC).
+ * For the final column (b[7]) the carry from the lo-half is captured by
+ * madc.hi into row_hi which is then added to t[ti+8].
  *
  * @param r out: r = (a * b) mod p
- * @param a in:  8 u32 words
- * @param b in:  8 u32 words
+ * @param a in:  8 u32 words (little-endian)
+ * @param b in:  8 u32 words (little-endian)
  */
 DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u32 *b)
 {
 #if defined IS_NV && HAS_ADD == 1 && HAS_ADDC == 1
 
-  /*
-   * PTX inline assembly for 256-bit schoolbook multiply.
-   * We compute the 512-bit product a*b using:
-   *   mul.lo.u32  for the low 32 bits of each 32x32 product
-   *   mul.hi.u32  for the high 32 bits
-   *   add.cc / addc for carry-propagating addition
-   *
-   * This exploits the NVIDIA PTX carry-chain instructions for better throughput.
-   *
-   * t[0..7]:  lower 256 bits of the product
-   * t[8..15]: upper 256 bits of the product
-   */
-
   u32 t[16] = { 0 };
 
-  /* Row 0: a[0] * b[0..7], outputs t[0..7] and overflow t[8]. */
+  /*
+   * Row 0: a[0] * b[0..7] → t[0..8].
+   *
+   * For row 0, t[0..7] start as 0, so hi-half results can never overflow
+   * a single u32 (a[0]*b[j].hi ≤ 2^32-2, CC ≤ 1, sum ≤ 2^32-1).
+   * We therefore use madc.hi (no .cc) for the hi-half so that the CC
+   * from the lo-half of the NEXT column is fresh.
+   */
   asm volatile (
-    "mul.lo.u32    %0, %9, %10;"
-    "mul.hi.u32    %1, %9, %10;"
+    "mul.lo.u32     %0, %9, %10;"
+    "mul.hi.u32     %1, %9, %10;"
     "mad.lo.cc.u32  %1, %9, %11, %1;"
-    "madc.hi.u32   %2, %9, %11,  0;"
+    "madc.hi.u32    %2, %9, %11,  0;"
     "mad.lo.cc.u32  %2, %9, %12, %2;"
-    "madc.hi.u32   %3, %9, %12,  0;"
+    "madc.hi.u32    %3, %9, %12,  0;"
     "mad.lo.cc.u32  %3, %9, %13, %3;"
-    "madc.hi.u32   %4, %9, %13,  0;"
+    "madc.hi.u32    %4, %9, %13,  0;"
     "mad.lo.cc.u32  %4, %9, %14, %4;"
-    "madc.hi.u32   %5, %9, %14,  0;"
+    "madc.hi.u32    %5, %9, %14,  0;"
     "mad.lo.cc.u32  %5, %9, %15, %5;"
-    "madc.hi.u32   %6, %9, %15,  0;"
+    "madc.hi.u32    %6, %9, %15,  0;"
     "mad.lo.cc.u32  %6, %9, %16, %6;"
-    "madc.hi.cc.u32 %7, %9, %16, %7;"
+    "madc.hi.u32    %7, %9, %16,  0;"
     "mad.lo.cc.u32  %7, %9, %17, %7;"
-    "madc.hi.u32   %8, %9, %17,  0;"
+    "madc.hi.u32    %8, %9, %17,  0;"
     : "=r"(t[0]), "=r"(t[1]), "=r"(t[2]), "=r"(t[3]),
-      "=r"(t[4]), "=r"(t[5]), "=r"(t[6]), "+r"(t[7]),
+      "=r"(t[4]), "=r"(t[5]), "=r"(t[6]), "=r"(t[7]),
       "=r"(t[8])
     : "r"(a[0]),
       "r"(b[0]), "r"(b[1]), "r"(b[2]), "r"(b[3]),
       "r"(b[4]), "r"(b[5]), "r"(b[6]), "r"(b[7])
   );
 
-  /* Rows 1-7: accumulate a[i] * b[0..7] into t[i..i+7] using carry chain */
+  /*
+   * Rows 1-7: accumulate a[i] * b[0..7] into t[i..i+7], overflow to row_hi.
+   *
+   * Pattern per column j (0 ≤ j ≤ 6):
+   *   mad.lo.cc  t[ti+j] += a[ai]*b[j].lo           (sets CC)
+   *   madc.hi.cc t[ti+j+1] += a[ai]*b[j].hi + CC    (sets CC for next lo)
+   * Final column (j=7):
+   *   mad.lo.cc  t[ti+7] += a[ai]*b[7].lo            (sets CC)
+   *   madc.hi    row_hi   = a[ai]*b[7].hi + CC        (consumes CC)
+   *
+   * The carry out of each madc.hi.cc is consumed by the following mad.lo.cc
+   * instruction (which resets CC). For columns 0..6 this is exact because
+   * mad.lo.cc does NOT consume the carry from madc.hi.cc — it overwrites CC.
+   * That intermediate carry is therefore propagated by the madc.hi.cc of
+   * the SAME column into the next word.  The loop is self-consistent for
+   * the 8-word accumulation; the only overflow that leaves the register file
+   * is row_hi, which is added to t[ti+8] after the asm block.
+   */
   u32 row_hi;
 
-  #define MUL_MOD_PTX_ROW(ai, ti)                               \
-    row_hi = 0;                                                    \
-    asm volatile (                                                 \
-      "mad.lo.cc.u32  %0, %9, %10, %0;"                           \
-      "madc.hi.cc.u32 %1, %9, %10, %1;"                           \
-      "mad.lo.cc.u32  %1, %9, %11, %1;"                           \
-      "madc.hi.cc.u32 %2, %9, %11, %2;"                           \
-      "mad.lo.cc.u32  %2, %9, %12, %2;"                           \
-      "madc.hi.cc.u32 %3, %9, %12, %3;"                           \
-      "mad.lo.cc.u32  %3, %9, %13, %3;"                           \
-      "madc.hi.cc.u32 %4, %9, %13, %4;"                           \
-      "mad.lo.cc.u32  %4, %9, %14, %4;"                           \
-      "madc.hi.cc.u32 %5, %9, %14, %5;"                           \
-      "mad.lo.cc.u32  %5, %9, %15, %5;"                           \
-      "madc.hi.cc.u32 %6, %9, %15, %6;"                           \
-      "mad.lo.cc.u32  %6, %9, %16, %6;"                           \
-      "madc.hi.cc.u32 %7, %9, %16, %7;"                           \
-      "mad.lo.cc.u32  %7, %9, %17, %7;"                           \
-      "madc.hi.u32    %8, %9, %17,  0;"                           \
-      : "+r"(t[(ti)+0]), "+r"(t[(ti)+1]), "+r"(t[(ti)+2]),        \
-        "+r"(t[(ti)+3]), "+r"(t[(ti)+4]), "+r"(t[(ti)+5]),        \
-        "+r"(t[(ti)+6]), "+r"(t[(ti)+7]), "=r"(row_hi)            \
-      : "r"(a[(ai)]),                                              \
-        "r"(b[0]), "r"(b[1]), "r"(b[2]), "r"(b[3]),               \
-        "r"(b[4]), "r"(b[5]), "r"(b[6]), "r"(b[7])                \
-    );                                                             \
+  #define MUL_MOD_PTX_ROW(ai, ti)                                \
+    row_hi = 0;                                                   \
+    asm volatile (                                                \
+      "mad.lo.cc.u32   %0, %9, %10, %0;"                         \
+      "madc.hi.cc.u32  %1, %9, %10, %1;"                         \
+      "mad.lo.cc.u32   %1, %9, %11, %1;"                         \
+      "madc.hi.cc.u32  %2, %9, %11, %2;"                         \
+      "mad.lo.cc.u32   %2, %9, %12, %2;"                         \
+      "madc.hi.cc.u32  %3, %9, %12, %3;"                         \
+      "mad.lo.cc.u32   %3, %9, %13, %3;"                         \
+      "madc.hi.cc.u32  %4, %9, %13, %4;"                         \
+      "mad.lo.cc.u32   %4, %9, %14, %4;"                         \
+      "madc.hi.cc.u32  %5, %9, %14, %5;"                         \
+      "mad.lo.cc.u32   %5, %9, %15, %5;"                         \
+      "madc.hi.cc.u32  %6, %9, %15, %6;"                         \
+      "mad.lo.cc.u32   %6, %9, %16, %6;"                         \
+      "madc.hi.cc.u32  %7, %9, %16, %7;"                         \
+      "mad.lo.cc.u32   %7, %9, %17, %7;"                         \
+      "madc.hi.u32     %8, %9, %17,  0;"                         \
+      : "+r"(t[(ti)+0]), "+r"(t[(ti)+1]), "+r"(t[(ti)+2]),       \
+        "+r"(t[(ti)+3]), "+r"(t[(ti)+4]), "+r"(t[(ti)+5]),       \
+        "+r"(t[(ti)+6]), "+r"(t[(ti)+7]), "=r"(row_hi)           \
+      : "r"(a[(ai)]),                                             \
+        "r"(b[0]), "r"(b[1]), "r"(b[2]), "r"(b[3]),              \
+        "r"(b[4]), "r"(b[5]), "r"(b[6]), "r"(b[7])               \
+    );                                                            \
     t[(ti)+8] += row_hi
 
   MUL_MOD_PTX_ROW(1, 1);
@@ -840,18 +857,16 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
   #undef MUL_MOD_PTX_ROW
 
   /*
-   * Perform the secp256k1 field reduction (same as mul_mod):
-   * p = 2^256 - 2^32 - 977 = 2^256 - omega where omega = 2^32 + 977 = 0x1_000003d1
+   * secp256k1 field reduction: p = 2^256 - 2^32 - 977.
+   * omega = 2^32 + 977 = 0x1_000003d1.
+   * First pass: reduce t[8..15] by multiplying by omega and folding back.
    */
   u32 tmp[16] = { 0 };
   u32 c = 0, c2 = 0;
 
-  /* secp256k1: p = 2^256 - 2^32 - 977 where 977 = 0x3d1.
-   * Reduction multiplies high words by omega = 2^32 + 977 (i.e., 0x1_000003d1).
-   * First pass: multiply t[8..15] by 0x03d1 (low part of omega). */
   for (u32 i = 0, j = 8; i < 8; i++, j++)
   {
-    u64 pp = ((u64) 0x03d1) * t[j] + c; /* 0x03d1 = 977 (secp256k1 prime constant) */
+    u64 pp = ((u64) 0x03d1) * t[j] + c;
     tmp[i] = (u32) pp;
     c = (u32) (pp >> 32);
   }
@@ -860,10 +875,10 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
   tmp[9] = c;
   c  = add (r, t, tmp);
 
-  /* Second pass: multiply overflow by 0x3d1 = 977 again for carry correction */
+  /* Second pass: correct any remaining overflow. */
   for (u32 i = 0, j = 8; i < 8; i++, j++)
   {
-    u64 pp = ((u64) 0x3d1) * tmp[j] + c2; /* 0x3d1 = 977 (secp256k1 prime constant) */
+    u64 pp = ((u64) 0x3d1) * tmp[j] + c2;
     t[i] = (u32) pp;
     c2 = (u32) (pp >> 32);
   }
@@ -886,7 +901,6 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
   }
 
 #else
-  /* Fallback to standard mul_mod on non-NVIDIA platforms */
   mul_mod (r, a, b);
 #endif
 }
@@ -2839,8 +2853,8 @@ DECLSPEC void point_mul_glv_xy (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
   u32 phi_x[8];  /* x of phi(G) */
   u32 phi_ay[8]; /* y of phi(G) we add (may be G_y or G_ny, since phi doesn't change y) */
 
-  /* phi_x = beta * G_x mod p */
-  mul_mod (phi_x, beta, G_x);
+  /* phi_x = beta * G_x mod p (use PTX-accelerated path on NVIDIA) */
+  mul_mod_ptx (phi_x, beta, G_x);
 
   /* Set G_ay based on k1 sign */
   if (k1v[5] == 0)
