@@ -294,6 +294,12 @@ DECLSPEC u32  parse_public (PRIVATE_AS secp256k1_t *r, PRIVATE_AS const u32 *k);
 
 DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a);
 
+/*
+ * PTX-optimised field squaring for NVIDIA (sm_80+).
+ * Delegates to mul_mod_ptx(r, a, a); on AMD/generic falls back to sqr_mod.
+ */
+DECLSPEC void sqr_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a);
+
 DECLSPEC void point_mul_xy (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_t *tmps);
 DECLSPEC void point_mul (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_t *tmps);
 

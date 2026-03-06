@@ -590,65 +590,157 @@ DECLSPEC void mod_512 (PRIVATE_AS u32 *n)
   n[15] = a[15];
 }
 
-DECLSPEC void mul_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u32 *b) // TODO get rid of u64 ?
+/*
+ * Three-word accumulator helper for the manually unrolled 8×8 schoolbook
+ * multiply.  Computes the 96-bit value (c, t1, t0) += a * b.
+ *
+ * The 64-bit sum _muladd_ss = _muladd_dd + _muladd_pp wraps on overflow;
+ * the condition _muladd_ss < _muladd_pp detects that wrap and increments
+ * the third word c by 1.  This replicates the accumulator loop body used
+ * by micro-ecc / libsecp256k1.
+ *
+ * Internal temporaries use the _muladd_ prefix to avoid shadowing any
+ * outer variable that might share a common short name.
+ *
+ * References:
+ *   micro-ecc uECC.c (schoolbook multiply)
+ *   CudaBrainSecp ptx_macros.cu (carry-chain pattern)
+ *   lawliet89/gist (PTX mad.lo/mad.hi pattern, generalised here for u64)
+ */
+#define MULADD64(t0_, t1_, c_, a_, b_) do {                         \
+  const u64 _muladd_pp = (u64)(a_) * (u64)(b_);                     \
+  const u64 _muladd_dd = ((u64)(t1_) << 32) | (u64)(t0_);           \
+  const u64 _muladd_ss = _muladd_dd + _muladd_pp;                    \
+  (t0_) = (u32)(_muladd_ss);                                         \
+  (t1_) = (u32)(_muladd_ss >> 32);                                   \
+  (c_) += (u32)(_muladd_ss < _muladd_pp);                            \
+} while (0)
+
+DECLSPEC void mul_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u32 *b)
 {
   u32 t[16] = { 0 }; // we need up to double the space (2 * 8)
 
   /*
-   * First start with the basic a * b multiplication:
+   * 8×8 schoolbook multiplication — fully unrolled (no variable-bound loops).
+   *
+   * Each "column k" accumulates the sum of a[j]*b[k-j] for all valid j into
+   * the three-word accumulator (c, t1, t0) using MULADD64.
+   *
+   * Sources: micro-ecc (schoolbook), CudaBrainSecp ptx_macros.cu (carry chain)
    */
 
   u32 t0 = 0;
   u32 t1 = 0;
   u32 c  = 0;
 
-  for (u32 i = 0; i < 8; i++)
-  {
-    for (u32 j = 0; j <= i; j++)
-    {
-      u64 p = ((u64) a[j]) * b[i - j];
+  /* Column 0 */
+  MULADD64(t0, t1, c, a[0], b[0]);
+  t[0] = t0; t0 = t1; t1 = c; c = 0;
 
-      u64 d = ((u64) t1) << 32 | t0;
+  /* Column 1 */
+  MULADD64(t0, t1, c, a[0], b[1]);
+  MULADD64(t0, t1, c, a[1], b[0]);
+  t[1] = t0; t0 = t1; t1 = c; c = 0;
 
-      d += p;
+  /* Column 2 */
+  MULADD64(t0, t1, c, a[0], b[2]);
+  MULADD64(t0, t1, c, a[1], b[1]);
+  MULADD64(t0, t1, c, a[2], b[0]);
+  t[2] = t0; t0 = t1; t1 = c; c = 0;
 
-      t0 = (u32) d;
-      t1 = d >> 32;
+  /* Column 3 */
+  MULADD64(t0, t1, c, a[0], b[3]);
+  MULADD64(t0, t1, c, a[1], b[2]);
+  MULADD64(t0, t1, c, a[2], b[1]);
+  MULADD64(t0, t1, c, a[3], b[0]);
+  t[3] = t0; t0 = t1; t1 = c; c = 0;
 
-      c += d < p; // carry
-    }
+  /* Column 4 */
+  MULADD64(t0, t1, c, a[0], b[4]);
+  MULADD64(t0, t1, c, a[1], b[3]);
+  MULADD64(t0, t1, c, a[2], b[2]);
+  MULADD64(t0, t1, c, a[3], b[1]);
+  MULADD64(t0, t1, c, a[4], b[0]);
+  t[4] = t0; t0 = t1; t1 = c; c = 0;
 
-    t[i] = t0;
+  /* Column 5 */
+  MULADD64(t0, t1, c, a[0], b[5]);
+  MULADD64(t0, t1, c, a[1], b[4]);
+  MULADD64(t0, t1, c, a[2], b[3]);
+  MULADD64(t0, t1, c, a[3], b[2]);
+  MULADD64(t0, t1, c, a[4], b[1]);
+  MULADD64(t0, t1, c, a[5], b[0]);
+  t[5] = t0; t0 = t1; t1 = c; c = 0;
 
-    t0 = t1;
-    t1 = c;
+  /* Column 6 */
+  MULADD64(t0, t1, c, a[0], b[6]);
+  MULADD64(t0, t1, c, a[1], b[5]);
+  MULADD64(t0, t1, c, a[2], b[4]);
+  MULADD64(t0, t1, c, a[3], b[3]);
+  MULADD64(t0, t1, c, a[4], b[2]);
+  MULADD64(t0, t1, c, a[5], b[1]);
+  MULADD64(t0, t1, c, a[6], b[0]);
+  t[6] = t0; t0 = t1; t1 = c; c = 0;
 
-    c = 0;
-  }
+  /* Column 7 */
+  MULADD64(t0, t1, c, a[0], b[7]);
+  MULADD64(t0, t1, c, a[1], b[6]);
+  MULADD64(t0, t1, c, a[2], b[5]);
+  MULADD64(t0, t1, c, a[3], b[4]);
+  MULADD64(t0, t1, c, a[4], b[3]);
+  MULADD64(t0, t1, c, a[5], b[2]);
+  MULADD64(t0, t1, c, a[6], b[1]);
+  MULADD64(t0, t1, c, a[7], b[0]);
+  t[7] = t0; t0 = t1; t1 = c; c = 0;
 
-  for (u32 i = 8; i < 15; i++)
-  {
-    for (u32 j = i - 7; j < 8; j++)
-    {
-      u64 p = ((u64) a[j]) * b[i - j];
+  /* Column 8 */
+  MULADD64(t0, t1, c, a[1], b[7]);
+  MULADD64(t0, t1, c, a[2], b[6]);
+  MULADD64(t0, t1, c, a[3], b[5]);
+  MULADD64(t0, t1, c, a[4], b[4]);
+  MULADD64(t0, t1, c, a[5], b[3]);
+  MULADD64(t0, t1, c, a[6], b[2]);
+  MULADD64(t0, t1, c, a[7], b[1]);
+  t[8] = t0; t0 = t1; t1 = c; c = 0;
 
-      u64 d = ((u64) t1) << 32 | t0;
+  /* Column 9 */
+  MULADD64(t0, t1, c, a[2], b[7]);
+  MULADD64(t0, t1, c, a[3], b[6]);
+  MULADD64(t0, t1, c, a[4], b[5]);
+  MULADD64(t0, t1, c, a[5], b[4]);
+  MULADD64(t0, t1, c, a[6], b[3]);
+  MULADD64(t0, t1, c, a[7], b[2]);
+  t[9] = t0; t0 = t1; t1 = c; c = 0;
 
-      d += p;
+  /* Column 10 */
+  MULADD64(t0, t1, c, a[3], b[7]);
+  MULADD64(t0, t1, c, a[4], b[6]);
+  MULADD64(t0, t1, c, a[5], b[5]);
+  MULADD64(t0, t1, c, a[6], b[4]);
+  MULADD64(t0, t1, c, a[7], b[3]);
+  t[10] = t0; t0 = t1; t1 = c; c = 0;
 
-      t0 = (u32) d;
-      t1 = d >> 32;
+  /* Column 11 */
+  MULADD64(t0, t1, c, a[4], b[7]);
+  MULADD64(t0, t1, c, a[5], b[6]);
+  MULADD64(t0, t1, c, a[6], b[5]);
+  MULADD64(t0, t1, c, a[7], b[4]);
+  t[11] = t0; t0 = t1; t1 = c; c = 0;
 
-      c += d < p;
-    }
+  /* Column 12 */
+  MULADD64(t0, t1, c, a[5], b[7]);
+  MULADD64(t0, t1, c, a[6], b[6]);
+  MULADD64(t0, t1, c, a[7], b[5]);
+  t[12] = t0; t0 = t1; t1 = c; c = 0;
 
-    t[i] = t0;
+  /* Column 13 */
+  MULADD64(t0, t1, c, a[6], b[7]);
+  MULADD64(t0, t1, c, a[7], b[6]);
+  t[13] = t0; t0 = t1; t1 = c; c = 0;
 
-    t0 = t1;
-    t1 = c;
-
-    c = 0;
-  }
+  /* Column 14 */
+  MULADD64(t0, t1, c, a[7], b[7]);
+  t[14] = t0; t0 = t1; t1 = c; c = 0;
 
   t[15] = t0;
 
@@ -860,6 +952,9 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
    * secp256k1 field reduction: p = 2^256 - 2^32 - 977.
    * omega = 2^32 + 977 = 0x1_000003d1.
    * First pass: reduce t[8..15] by multiplying by omega and folding back.
+   *
+   * Note: this identical reduction block is also used by sqr_mod_ptx via
+   *       mul_mod_ptx(r, a, a).
    */
   u32 tmp[16] = { 0 };
   u32 c = 0, c2 = 0;
@@ -905,14 +1000,44 @@ DECLSPEC void mul_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_A
 #endif
 }
 
+/*
+ * PTX-optimized field squaring for NVIDIA GPUs (sm_80+).
+ * Delegates to mul_mod_ptx(r, a, a) which uses the full 8×8 PTX carry-chain.
+ * On AMD/HIP/generic the fallback uses the standard squaring loop.
+ *
+ * Using mul_mod_ptx with a == b is correct (no aliasing hazard because
+ * mul_mod_ptx copies inputs into asm registers before writing any output).
+ *
+ * @param r out: r = a² mod p  (8 u32 words, little-endian)
+ * @param a in:  8 u32 words
+ */
+DECLSPEC void sqr_mod_ptx (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
+{
+#if defined IS_NV && HAS_ADD == 1 && HAS_ADDC == 1
+  mul_mod_ptx (r, a, a);
+#else
+  sqr_mod (r, a);
+#endif
+}
+
 DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
 {
+#if defined IS_NV && HAS_ADD == 1 && HAS_ADDC == 1
+  /*
+   * On NVIDIA: reuse the PTX 8×8 multiply with a == b.
+   * mul_mod_ptx handles a-equals-b correctly (inputs are copied into PTX
+   * register operands before any output is written).
+   */
+  mul_mod_ptx (r, a, a);
+  return;
+#endif
   u32 t[16] = { 0 }; // we need up to double the space (2 * 8)
 
   /*
-   * First compute a * a with symmetry optimization:
-   * For squaring, a[j] * a[i-j] = a[i-j] * a[j], so we can compute
-   * half the products and double them, then add the diagonal terms
+   * AMD/generic path: squaring with symmetry optimisation.
+   * Off-diagonal products a[j]*a[i-j] (j ≠ i-j) appear twice; diagonal
+   * terms appear once.  The #pragma unroll hints help the AMD compiler
+   * emit straight-line code similar to a manual schoolbook unroll.
    */
 
   u32 t0 = 0;
@@ -920,9 +1045,11 @@ DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
   u32 c  = 0;
 
   // Handle lower half of product (i = 0 to 7)
+  #pragma unroll 8
   for (u32 i = 0; i < 8; i++)
   {
     // Add cross products (doubled)
+    #pragma unroll 4
     for (u32 j = 0; j < (i + 1) / 2; j++)
     {
       u64 p = ((u64) a[j]) * a[i - j];
@@ -966,11 +1093,13 @@ DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
   }
 
   // Handle upper half of product (i = 8 to 15)
+  #pragma unroll 7
   for (u32 i = 8; i < 15; i++)
   {
     // Add cross products (doubled)
     u32 j_start = i - 7;
     u32 j_end = (i + 1) / 2;
+    #pragma unroll 4
     for (u32 j = j_start; j < j_end; j++)
     {
       u64 p = ((u64) a[j]) * a[i - j];
