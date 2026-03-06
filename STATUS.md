@@ -3,9 +3,9 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: implementation phases 2-4
-TIMESTAMP: 2026-03-06T09:45:00Z
-DETAILS: Full GLV decomposition (Babai rounding), point_mul_glv_xy, batch_inv_mod, and mul_mod_ptx implemented. Fixed SECP256K1_GLV_A2_0..3 constants. Fixed mul_mod_ptx row-0 PTX (was missing a[0]*b[7] term). Python verification of all algorithms passed.
+PHASE: implementation — modules 35905, 35906, rename 35912→35911, README update
+TIMESTAMP: 2026-03-06T11:30:00Z
+DETAILS: Module 35912 renamed to 35911. New module 35905 (Bitcoin Private Key Hex + Reversed) and module 35906 (Ethereum Private Key Hex + Reversed) implemented with complete C module files and OpenCL kernels (a0/a1/a3 pure modes). README.md updated with Russian documentation, full examples, and cross-platform (UNIX/Windows) usage.
 ```
 
 ## IMPLEMENTATION LOG

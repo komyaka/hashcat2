@@ -2,7 +2,7 @@
  * Author......: See docs/credits.txt
  * License.....: MIT
  *
- * Module 35912 — Ethereum Brainwallet (BLAKE2s-256)
+ * Module 35911 — Ethereum Brainwallet (BLAKE2s-256)
  * Attack mode a3: brute-force / mask
  */
 
@@ -140,7 +140,7 @@ DECLSPEC void keccak_256_64 (PRIVATE_AS const u32 *in, PRIVATE_AS u32 *out)
   out[4] = h32_from_64_S (st[3]);
 }
 
-KERNEL_FQ KERNEL_FA void m35912_mxx (KERN_ATTR_VECTOR ())
+KERNEL_FQ KERNEL_FA void m35911_mxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
 
@@ -224,7 +224,7 @@ KERNEL_FQ KERNEL_FA void m35912_mxx (KERN_ATTR_VECTOR ())
   }
 }
 
-KERNEL_FQ KERNEL_FA void m35912_sxx (KERN_ATTR_VECTOR ())
+KERNEL_FQ KERNEL_FA void m35911_sxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
 

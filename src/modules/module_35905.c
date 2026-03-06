@@ -11,6 +11,8 @@
 #include "shared.h"
 #include "memory.h"
 
+#include "emu_inc_hash_base58.h"
+
 static const u32   ATTACK_EXEC       = ATTACK_EXEC_INSIDE_KERNEL;
 static const u32   DGST_POS0         = 0;
 static const u32   DGST_POS1         = 1;
@@ -18,14 +20,14 @@ static const u32   DGST_POS2         = 2;
 static const u32   DGST_POS3         = 3;
 static const u32   DGST_SIZE         = DGST_SIZE_4_5;
 static const u32   HASH_CATEGORY     = HASH_CATEGORY_CRYPTOCURRENCY_WALLET;
-static const char *HASH_NAME         = "Ethereum Brainwallet (BLAKE2s-256)";
-static const u64   KERN_TYPE         = 35912;
-static const u32   OPTI_TYPE         = OPTI_TYPE_NOT_SALTED;
+static const char *HASH_NAME         = "Bitcoin Private Key Hex (P2PKH/Bech32/P2SH) + Reversed";
+static const u64   KERN_TYPE         = 35905;
+static const u32   OPTI_TYPE         = 0;
 static const u64   OPTS_TYPE         = OPTS_TYPE_STOCK_MODULE
                                      | OPTS_TYPE_PT_GENERATE_LE;
-static const u32   SALT_TYPE         = SALT_TYPE_NONE;
-static const char *ST_PASS           = "hashcat";
-static const char *ST_HASH           = "0x4d10f53d02f5440505e6666696405a21ed910326";
+static const u32   SALT_TYPE         = SALT_TYPE_EMBEDDED;
+static const char *ST_PASS           = "127e6fbfe24a750e72930c220a8e138275656b8e5d8f48a98c3c92df2caba935";
+static const char *ST_HASH           = "1CkwUnESKuVFyn3PVm1fyyMtXx6CT2STg7";
 
 u32         module_attack_exec       (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ATTACK_EXEC;     }
 u32         module_dgst_pos0         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return DGST_POS0;       }
@@ -41,6 +43,47 @@ u64         module_opts_type         (MAYBE_UNUSED const hashconfig_t *hashconfi
 u32         module_salt_type         (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return SALT_TYPE;       }
 const char *module_st_hash           (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ST_HASH;         }
 const char *module_st_pass           (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra) { return ST_PASS;         }
+
+#define PUBKEY_MAXLEN 64
+
+// Bech32 support functions
+static u32 polymod_checksum (const u8 *data, const u32 data_len)
+{
+  const u32 CONSTS[5] = { 0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3 };
+
+  u32 c = 1;
+
+  for (u32 i = 0; i < data_len; i++)
+  {
+    const u32 b = c >> 25;
+
+    c = ((c & 0x01ffffff) << 5) ^ data[i];
+
+    for (u32 j = 0; j < 5; j++)
+    {
+      const u32 bit_set = (b >> j) & 1;
+
+      if (bit_set == 0) continue;
+
+      c ^= CONSTS[j];
+    }
+  }
+
+  return c;
+}
+
+static const char *SIGNATURE_BITCOIN_BECH32 = "bc1";
+static const char *BECH32_BASE32_ALPHABET   = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+u32 module_pw_min (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
+{
+  return 64;
+}
+
+u32 module_pw_max (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra)
+{
+  return 64;
+}
 
 bool module_unstable_warning (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const user_options_t *user_options, MAYBE_UNUSED const user_options_extra_t *user_options_extra, MAYBE_UNUSED const hc_device_param_t *device_param)
 {
@@ -60,49 +103,288 @@ bool module_unstable_warning (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE
 
 int module_hash_decode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED void *digest_buf, MAYBE_UNUSED salt_t *salt, MAYBE_UNUSED void *esalt_buf, MAYBE_UNUSED void *hook_salt_buf, MAYBE_UNUSED hashinfo_t *hash_info, const char *line_buf, MAYBE_UNUSED const int line_len)
 {
-  u32 *digest = (u32 *) digest_buf;
+  u8 *digest = (u8 *) digest_buf;
 
-  hc_token_t token;
+  memset (salt, 0, sizeof (salt_t));
 
-  memset (&token, 0, sizeof (hc_token_t));
-
-  token.token_cnt = 1;
-
-  // accept 0x prefix
-
-  const u8 *input_buf = (const u8 *) line_buf;
-  int input_len = line_len;
-
-  if (line_len == 42 && line_buf[0] == '0' && (line_buf[1] == 'x' || line_buf[1] == 'X'))
+  if ((line_len == 42) && (line_buf[0] == 'b') && (line_buf[1] == 'c') && (line_buf[2] == '1'))
   {
-    input_buf += 2;
-    input_len -= 2;
+    // Bech32 address type
+    hc_token_t token;
+
+    memset (&token, 0, sizeof (hc_token_t));
+
+    token.token_cnt = 2;
+
+    token.signatures_cnt    = 1;
+    token.signatures_buf[0] = SIGNATURE_BITCOIN_BECH32;
+
+    token.len[0]  =  3;
+    token.attr[0] = TOKEN_ATTR_FIXED_LENGTH
+                  | TOKEN_ATTR_VERIFY_SIGNATURE;
+
+    token.len[1]  = 39;
+    token.attr[1] = TOKEN_ATTR_FIXED_LENGTH
+                  | TOKEN_ATTR_VERIFY_BECH32;
+
+    const int rc_tokenizer = input_tokenizer ((const u8 *) line_buf, line_len, &token);
+
+    if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
+
+    u8 t[64] = { 0 };
+
+    for (u32 i = 3; i < 42; i++)
+    {
+      for (u32 j = 0; j < 32; j++)
+      {
+        if (BECH32_BASE32_ALPHABET[j] == line_buf[i])
+        {
+          t[i - 3] = j;
+          break;
+        }
+      }
+    }
+
+    if (t[0] != 0) return (PARSER_HASH_ENCODING);
+
+    u32 checksum = t[33] << 25
+                 | t[34] << 20
+                 | t[35] << 15
+                 | t[36] << 10
+                 | t[37] <<  5
+                 | t[38] <<  0;
+
+    u8 data[64] = { 0 };
+
+    data[0] = 3;
+    data[1] = 3;
+    data[2] = 0;
+    data[3] = 2;
+    data[4] = 3;
+
+    for (u32 i = 0; i < 42 - 3 - 6; i++)
+    {
+      data[i + 5] = t[i];
+    }
+
+    data[38] = 0;
+    data[39] = 0;
+    data[40] = 0;
+    data[41] = 0;
+    data[42] = 0;
+    data[43] = 0;
+
+    u32 polymod = polymod_checksum (data, 44) ^ 1;
+
+    if (polymod != checksum) return (PARSER_HASH_ENCODING);
+
+    u32 tmp_digest[5];
+
+    tmp_digest[0] = (t[ 1] << 27) | (t[ 2] << 22) | (t[ 3] << 17) | (t[ 4] << 12)
+                  | (t[ 5] <<  7) | (t[ 6] <<  2) | (t[ 7] >>  3);
+
+    tmp_digest[1] = (t[ 7] << 29) | (t[ 8] << 24) | (t[ 9] << 19) | (t[10] << 14)
+                  | (t[11] <<  9) | (t[12] <<  4) | (t[13] >>  1);
+
+    tmp_digest[2] = (t[13] << 31) | (t[14] << 26) | (t[15] << 21) | (t[16] << 16)
+                  | (t[17] << 11) | (t[18] <<  6) | (t[19] <<  1) | (t[20] >>  4);
+
+    tmp_digest[3] = (t[20] << 28) | (t[21] << 23) | (t[22] << 18) | (t[23] << 13)
+                  | (t[24] <<  8) | (t[25] <<  3) | (t[26] >>  2);
+
+    tmp_digest[4] = (t[26] << 30) | (t[27] << 25) | (t[28] << 20) | (t[29] << 15)
+                  | (t[30] << 10) | (t[31] <<  5) | (t[32] <<  0);
+
+    u32 *digest32 = (u32 *) digest;
+
+    for (u32 i = 0; i < 5; i++)
+    {
+      digest32[i] = byte_swap_32 (tmp_digest[i]);
+    }
+
+    salt->salt_buf[0] = 2;
+    salt->salt_len = 4;
+
+    return (PARSER_OK);
+  }
+  else if ((line_len >= 26) && (line_len <= 35) && (line_buf[0] == '1' || line_buf[0] == '3'))
+  {
+    // P2PKH or P2SH address type (Base58Check)
+    u8 pubkey[PUBKEY_MAXLEN];
+
+    hc_token_t token;
+
+    memset (&token, 0, sizeof (hc_token_t));
+
+    token.token_cnt = 1;
+
+    token.len_min[0] = 26;
+    token.len_max[0] = 35;
+    token.attr[0]    = TOKEN_ATTR_VERIFY_LENGTH
+                     | TOKEN_ATTR_VERIFY_BASE58;
+
+    const int rc_tokenizer = input_tokenizer ((const u8 *) line_buf, line_len, &token);
+
+    if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
+
+    u32 pubkey_len = PUBKEY_MAXLEN;
+
+    bool res = b58dec (pubkey, &pubkey_len, (const u8 *) line_buf, line_len);
+
+    if (res == false) return (PARSER_HASH_LENGTH);
+
+    if (pubkey_len != 25) return (PARSER_HASH_LENGTH);
+
+    u32 l = PUBKEY_MAXLEN - pubkey_len;
+
+    u8 version = pubkey[l];
+
+    if (version != 0 && version != 5) return (PARSER_HASH_VALUE);
+
+    u32 npubkey[16] = { 0 };
+
+    u8 *npubkey_ptr = (u8 *) npubkey;
+
+    for (u32 i = 0, j = PUBKEY_MAXLEN - pubkey_len; i < pubkey_len; i++, j++)
+    {
+      npubkey_ptr[i] = pubkey[j];
+    }
+
+    if (b58check_25 (npubkey) == false) return (PARSER_HASH_ENCODING);
+
+    for (u32 i = 0; i < 20; i++)
+    {
+      digest[i] = pubkey[PUBKEY_MAXLEN - pubkey_len + i + 1];
+    }
+
+    if (version == 0)
+    {
+      salt->salt_buf[0] = 0;
+    }
+    else
+    {
+      salt->salt_buf[0] = 1;
+    }
+
+    salt->salt_len = 4;
+
+    return (PARSER_OK);
   }
 
-  token.len_min[0] = 40;
-  token.len_max[0] = 40;
-  token.attr[0]    = TOKEN_ATTR_VERIFY_LENGTH
-                   | TOKEN_ATTR_VERIFY_HEX;
-
-  const int rc_tokenizer = input_tokenizer (input_buf, input_len, &token);
-
-  if (rc_tokenizer != PARSER_OK) return (rc_tokenizer);
-
-  digest[0] = hex_to_u32 (input_buf +  0);
-  digest[1] = hex_to_u32 (input_buf +  8);
-  digest[2] = hex_to_u32 (input_buf + 16);
-  digest[3] = hex_to_u32 (input_buf + 24);
-  digest[4] = hex_to_u32 (input_buf + 32);
-
-  return (PARSER_OK);
+  return (PARSER_HASH_LENGTH);
 }
 
 int module_hash_encode (MAYBE_UNUSED const hashconfig_t *hashconfig, MAYBE_UNUSED const void *digest_buf, MAYBE_UNUSED const salt_t *salt, MAYBE_UNUSED const void *esalt_buf, MAYBE_UNUSED const void *hook_salt_buf, MAYBE_UNUSED const hashinfo_t *hash_info, char *line_buf, MAYBE_UNUSED const int line_size)
 {
-  const u32 *digest = (const u32 *) digest_buf;
+  const u8 *digest = (const u8 *) digest_buf;
 
-  return snprintf (line_buf, line_size, "0x%08x%08x%08x%08x%08x",
-    digest[0], digest[1], digest[2], digest[3], digest[4]);
+  const u32 addr_type = salt->salt_buf[0];
+
+  if (addr_type == 2)
+  {
+    // Bech32
+    u8 b[20] = { 0 };
+
+    for (u32 i = 0; i < 20; i++)
+    {
+      b[i] = digest[i];
+    }
+
+    u8 t[64] = { 0 };
+
+    t[ 0] = 0;
+
+    t[ 1] = (               (b[ 0] >> 3)) & 31;
+    t[ 2] = ((b[ 0] << 2) | (b[ 1] >> 6)) & 31;
+    t[ 3] = (               (b[ 1] >> 1)) & 31;
+    t[ 4] = ((b[ 1] << 4) | (b[ 2] >> 4)) & 31;
+    t[ 5] = ((b[ 2] << 1) | (b[ 3] >> 7)) & 31;
+    t[ 6] = (               (b[ 3] >> 2)) & 31;
+    t[ 7] = ((b[ 3] << 3) | (b[ 4] >> 5)) & 31;
+    t[ 8] = (               (b[ 4] >> 0)) & 31;
+
+    t[ 9] = (               (b[ 5] >> 3)) & 31;
+    t[10] = ((b[ 5] << 2) | (b[ 6] >> 6)) & 31;
+    t[11] = (               (b[ 6] >> 1)) & 31;
+    t[12] = ((b[ 6] << 4) | (b[ 7] >> 4)) & 31;
+    t[13] = ((b[ 7] << 1) | (b[ 8] >> 7)) & 31;
+    t[14] = (               (b[ 8] >> 2)) & 31;
+    t[15] = ((b[ 8] << 3) | (b[ 9] >> 5)) & 31;
+    t[16] = (               (b[ 9] >> 0)) & 31;
+
+    t[17] = (               (b[10] >> 3)) & 31;
+    t[18] = ((b[10] << 2) | (b[11] >> 6)) & 31;
+    t[19] = (               (b[11] >> 1)) & 31;
+    t[20] = ((b[11] << 4) | (b[12] >> 4)) & 31;
+    t[21] = ((b[12] << 1) | (b[13] >> 7)) & 31;
+    t[22] = (               (b[13] >> 2)) & 31;
+    t[23] = ((b[13] << 3) | (b[14] >> 5)) & 31;
+    t[24] = (               (b[14] >> 0)) & 31;
+
+    t[25] = (               (b[15] >> 3)) & 31;
+    t[26] = ((b[15] << 2) | (b[16] >> 6)) & 31;
+    t[27] = (               (b[16] >> 1)) & 31;
+    t[28] = ((b[16] << 4) | (b[17] >> 4)) & 31;
+    t[29] = ((b[17] << 1) | (b[18] >> 7)) & 31;
+    t[30] = (               (b[18] >> 2)) & 31;
+    t[31] = ((b[18] << 3) | (b[19] >> 5)) & 31;
+    t[32] = (               (b[19] >> 0)) & 31;
+
+    u8 data[64] = { 0 };
+
+    data[0] = 3;
+    data[1] = 3;
+    data[2] = 0;
+    data[3] = 2;
+    data[4] = 3;
+
+    for (u32 i = 0; i < 33; i++)
+    {
+      data[i + 5] = t[i];
+    }
+
+    u32 polymod = polymod_checksum (data, 44) ^ 1;
+
+    t[33] = (polymod >> 25) & 31;
+    t[34] = (polymod >> 20) & 31;
+    t[35] = (polymod >> 15) & 31;
+    t[36] = (polymod >> 10) & 31;
+    t[37] = (polymod >>  5) & 31;
+    t[38] = (polymod >>  0) & 31;
+
+    u8 bech32_address[64] = { 0 };
+
+    for (u32 i = 0; i < 39; i++)
+    {
+      const u32 idx = t[i];
+
+      bech32_address[i] = BECH32_BASE32_ALPHABET[idx];
+    }
+
+    bech32_address[39] = 0;
+
+    return snprintf (line_buf, line_size, "%s%s", SIGNATURE_BITCOIN_BECH32, bech32_address);
+  }
+  else if (addr_type == 1)
+  {
+    // P2SH
+    u8 buf[64] = { 0 };
+    u32 len = 64;
+
+    b58check_enc (buf, &len, 5, digest, 20);
+
+    return snprintf (line_buf, line_size, "%s", buf);
+  }
+  else
+  {
+    // P2PKH (default)
+    u8 buf[64] = { 0 };
+    u32 len = 64;
+
+    b58check_enc (buf, &len, 0, digest, 20);
+
+    return snprintf (line_buf, line_size, "%s", buf);
+  }
 }
 
 void module_init (module_ctx_t *module_ctx)
@@ -174,8 +456,8 @@ void module_init (module_ctx_t *module_ctx)
   module_ctx->module_potfile_disable          = MODULE_DEFAULT;
   module_ctx->module_potfile_keep_all_hashes  = MODULE_DEFAULT;
   module_ctx->module_pwdump_column            = MODULE_DEFAULT;
-  module_ctx->module_pw_max                   = MODULE_DEFAULT;
-  module_ctx->module_pw_min                   = MODULE_DEFAULT;
+  module_ctx->module_pw_max                   = module_pw_max;
+  module_ctx->module_pw_min                   = module_pw_min;
   module_ctx->module_salt_max                 = MODULE_DEFAULT;
   module_ctx->module_salt_min                 = MODULE_DEFAULT;
   module_ctx->module_salt_type                = module_salt_type;
