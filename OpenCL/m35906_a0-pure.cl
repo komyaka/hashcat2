@@ -136,17 +136,20 @@ DECLSPEC void keccak_256_64 (PRIVATE_AS const u32 *in, PRIVATE_AS u32 *out)
   st[7] = hl32_to_64_S (in[15], in[14]);
 
   // Keccak padding: 0x01 at byte 64, 0x80 at byte 135
-  st[8]  ^= 0x0000000000000001UL;
+  st[8] ^= 0x0000000000000001UL;
   st[16] ^= 0x8000000000000000UL;
 
   keccak_transform_S (st);
 
-  // Last 20 bytes = bytes 12..31 of Keccak output
-  out[0] = h32_from_64_S (st[1]); // bytes 8-11  → skip, out[0] = bytes 12-15
-  out[1] = l32_from_64_S (st[2]); // bytes 16-19
-  out[2] = h32_from_64_S (st[2]); // bytes 20-23
-  out[3] = l32_from_64_S (st[3]); // bytes 24-27
-  out[4] = h32_from_64_S (st[3]); // bytes 28-31
+  // Ethereum address = last 20 bytes = bytes 12..31 of Keccak-256 output
+  // st[1] holds bytes 8-15: h32(st[1])=bytes12-15, l32(st[1])=bytes8-11 (not used)
+  // st[2] holds bytes 16-23: l32(st[2])=bytes16-19, h32(st[2])=bytes20-23
+  // st[3] holds bytes 24-31: l32(st[3])=bytes24-27, h32(st[3])=bytes28-31
+  out[0] = h32_from_64_S (st[1]); // address bytes  0- 3 (keccak bytes 12-15)
+  out[1] = l32_from_64_S (st[2]); // address bytes  4- 7 (keccak bytes 16-19)
+  out[2] = h32_from_64_S (st[2]); // address bytes  8-11 (keccak bytes 20-23)
+  out[3] = l32_from_64_S (st[3]); // address bytes 12-15 (keccak bytes 24-27)
+  out[4] = h32_from_64_S (st[3]); // address bytes 16-19 (keccak bytes 28-31)
 }
 
 // Decode 8 hex chars from two consecutive u32 words into one big-endian u32

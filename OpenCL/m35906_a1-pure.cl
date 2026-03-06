@@ -127,7 +127,7 @@ DECLSPEC void keccak_256_64 (PRIVATE_AS const u32 *in, PRIVATE_AS u32 *out)
   st[6] = hl32_to_64_S (in[13], in[12]);
   st[7] = hl32_to_64_S (in[15], in[14]);
 
-  st[8]  ^= 0x0000000000000001UL;
+  st[8] ^= 0x0000000000000001UL;
   st[16] ^= 0x8000000000000000UL;
 
   keccak_transform_S (st);
