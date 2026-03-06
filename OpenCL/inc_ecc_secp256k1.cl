@@ -2316,41 +2316,46 @@ DECLSPEC u32 parse_public (PRIVATE_AS secp256k1_t *r, PRIVATE_AS const u32 *k)
 DECLSPEC void glv_decompose (PRIVATE_AS const u32 *k, PRIVATE_AS u32 *k1, PRIVATE_AS u32 *k2)
 {
   /*
-   * Precomputed constants for secp256k1 GLV decomposition (Babai rounding):
+   * PLACEHOLDER IMPLEMENTATION — Full Babai rounding not yet implemented.
    *
-   * Let:
-   *   a1 =  0x3086d221a7d46bcde86c90e49284eb15
-   *   b1 = -0xe4437ed6010e88286f547fa90abfe4c3
-   *   a2 =  0x114ca50f7a8e2f3f657c1108d9d44cfd8
-   *   b2 =  0x3086d221a7d46bcde86c90e49284eb15  (== a1)
+   * The complete GLV scalar decomposition should solve:
+   *   k = k1 + k2 * LAMBDA  (mod n)
+   * such that |k1|, |k2| < sqrt(n) ≈ 2^128, using the Babai rounding algorithm:
    *
-   * Algorithm:
-   *   c1 = round(b2 * k / n)
-   *   c2 = round(-b1 * k / n)
-   *   k1 = k - c1*a1 - c2*a2
-   *   k2 = -c1*b1 - c2*b2
+   *   Constants (a1, b1, a2, b2) defined in inc_ecc_secp256k1.h:
+   *     a1 =  0x3086d221a7d46bcde86c90e49284eb15
+   *     b1 = -0xe4437ed6010e88286f547fa90abfe4c3
+   *     a2 =  0x114ca50f7a8e2f3f657c1108d9d44cfd8
+   *     b2 =  0x3086d221a7d46bcde86c90e49284eb15 (== a1)
    *
-   * This is a simplification; a full GPU-optimized implementation would require
-   * multi-precision integer arithmetic beyond 256 bits.
-   * For now, we use a conservative fallback: k1 = k mod 2^128, k2 = k >> 128.
-   * This correctly handles the common case and can be refined.
+   *   Algorithm:
+   *     c1 = round(b2 * k / n)
+   *     c2 = round(-b1 * k / n)
+   *     k1 = k - c1*a1 - c2*a2
+   *     k2 = -c1*b1 - c2*b2
+   *
+   * This requires intermediate results up to 384 bits wide (256-bit k × 128-bit
+   * constants), which needs multi-precision arithmetic not yet implemented here.
+   *
+   * TODO: Implement full Babai rounding decomposition to enable point_mul_glv.
+   *
+   * Current behavior: naive 128-bit split (k1 = lower half, k2 = upper half).
+   * This does NOT produce valid GLV decomposition and is provided only as a
+   * function skeleton for future implementation.
    */
 
-  // Simple decomposition fallback: split k at the 128-bit boundary
-  // k1 = lower 128 bits, k2 = upper 128 bits (approximate)
-  // Exact GLV requires solving k1 + k2*lambda = k (mod n) with |k1|,|k2| < sqrt(n)
-
+  // PLACEHOLDER: split at 128-bit boundary (NOT a valid GLV decomposition)
   k1[0] = k[0];
   k1[1] = k[1];
   k1[2] = k[2];
   k1[3] = k[3];
-  k1[4] = 0; // positive
+  k1[4] = 0; // sign: positive
 
   k2[0] = k[4];
   k2[1] = k[5];
   k2[2] = k[6];
   k2[3] = k[7];
-  k2[4] = 0; // positive
+  k2[4] = 0; // sign: positive
 }
 
 DECLSPEC void set_precomputed_basepoint_g (PRIVATE_AS secp256k1_t *r)
