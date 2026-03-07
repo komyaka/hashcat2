@@ -499,3 +499,77 @@ DETAILS: 35 new tests created in Python/test_task7_regression_stability.py.
   TestKernelInitSelfTest (3), TestWatchdogRecover (5). Fast Jacobian
   implementations reduce 10k fuzz runtime from ~18min to ~40s.
 ```
+
+---
+
+## IMPLEMENTATION — Task 8: API Unification & Documentation
+
+### Changes Made
+| File | Change Type | Description |
+|---|---|---|
+| `OpenCL/inc_ecc_secp256k1.h` | modified | 4 typedef aliases (`secp256k1_fe`, `secp256k1_ge`, `secp256k1_gej`, `secp256k1_scalar`) + 13 function-name `#define` aliases (libsecp256k1/KeyHunt naming convention) |
+| `Python/test_task8_api_unification.py` | created | 56 tests: alias presence, mapping correctness, semantic equivalence of field ops, point ops, GLV scalar split |
+| `docs/SECP256K1_OPTIMIZATION_PLAN_RU.md` | modified | Section 10 added: borrowing sources table, type mapping table, function mapping table, file changes, comparison results |
+| `STATUS.md` | modified | Task 8 implementation record |
+
+### Functions / Types Added
+
+| Name | File | Type | Source | Description |
+|---|---|---|---|---|
+| `secp256k1_fe` | `inc_ecc_secp256k1.h` | `typedef u32[8]` | libsecp256k1 `src/field.h` | Field element in GF(p), 256-bit |
+| `secp256k1_ge` | `inc_ecc_secp256k1.h` | `typedef u32[16]` | libsecp256k1 `src/group.h` | Affine group element (x,y) |
+| `secp256k1_gej` | `inc_ecc_secp256k1.h` | `typedef u32[24]` | libsecp256k1 `src/group.h` | Jacobi group element (X:Y:Z) |
+| `secp256k1_scalar` | `inc_ecc_secp256k1.h` | `typedef u32[8]` | libsecp256k1 `src/scalar.h` | Scalar in Zn, 256-bit |
+| `secp256k1_fe_mul` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `mul_mod(r,a,b)` |
+| `secp256k1_fe_sqr` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `sqr_mod(r,a)` |
+| `secp256k1_fe_add` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `add_mod(r,a,b)` |
+| `secp256k1_fe_sub` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `sub_mod(r,a,b)` |
+| `secp256k1_fe_inv` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `inv_mod(a)` (in-place) |
+| `secp256k1_fe_normalize` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `mod_512(r)` |
+| `secp256k1_gej_double` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `point_double(x,y,z)` |
+| `secp256k1_gej_add_ge` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `point_add(x1,y1,z1,x2,y2)` |
+| `secp256k1_ecmult_gen` | `inc_ecc_secp256k1.h` | `#define` | CudaBrainSecp/KeyHunt | → `point_mul_xy(x,y,k,tmps)` |
+| `secp256k1_ecmult_gen_glv` | `inc_ecc_secp256k1.h` | `#define` | KeyHunt | → `point_mul_glv_xy(rx,ry,k,tmps)` |
+| `secp256k1_ecmult_wnaf_w5` | `inc_ecc_secp256k1.h` | `#define` | hashcat2 extension | → `point_mul_wnaf_w5(x,y,k,tmps)` |
+| `secp256k1_scalar_split_lambda` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 `scalar_impl.h` | → `glv_decompose(k,k1,k2)` |
+| `secp256k1_fe_inv_all` | `inc_ecc_secp256k1.h` | `#define` | libsecp256k1 | → `batch_inv_mod(elems,prods,n)` |
+
+### Tests Added
+| Test file | Test count | Covers AC |
+|---|---|---|
+| `Python/test_task8_api_unification.py` | 56 | AC-1..5 |
+
+### Test Results
+```
+Ran 329 tests in ~65s
+OK
+(273 existing + 56 new)
+```
+
+### Acceptance Criteria Status
+- [x] AC-1: secp256k1_fe/ge/gej/scalar typedef aliases in header — PASSED
+- [x] AC-2: 13 function-name #define aliases in header — PASSED
+- [x] AC-3: Each alias maps to the correct hashcat2 function — PASSED
+- [x] AC-4: Python semantic equivalence tests (field ops, point ops, GLV) — PASSED
+- [x] AC-5: docs/SECP256K1_OPTIMIZATION_PLAN_RU.md Section 10 added — PASSED
+- [x] AC-5: STATUS.md Task 8 record added — PASSED
+- [x] All 273 existing tests still pass — PASSED
+
+### Security Summary
+No new secrets, credentials, or production code paths introduced.
+All changes are preprocessor aliases and typedef declarations — zero runtime impact.
+CodeQL: no new alerts.
+
+### Implementation Status
+```
+STATUS: VERIFIED
+AGENT: coder
+PHASE: implementation — Task 8: API Unification & Documentation
+TIMESTAMP: 2026-03-07T12:00:00Z
+DETAILS: 4 typedef aliases (secp256k1_fe/ge/gej/scalar) + 13 function-name
+  #define aliases added to inc_ecc_secp256k1.h. 56 new Python tests cover
+  alias presence, mapping, and semantic equivalence. docs/SECP256K1_OPTIMIZATION_PLAN_RU.md
+  Section 10 added with borrowing sources, type/function mapping tables.
+  All 329 Python tests pass (273 existing + 56 new).
+```
+
