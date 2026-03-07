@@ -126,23 +126,21 @@ DECLSPEC u32 sub (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u
   );
   // HIP doesnt support these so we stick to OpenCL (aka IS_AMD) - is also faster without asm
   //#elif (defined IS_AMD || defined IS_HIP) && HAS_VSUB == 1 && HAS_VSUBB == 1
-  #elif 0
-  __asm__ __volatile__
-  (
-    "V_SUB_U32   %0,  %9, %17;"
-    "V_SUBB_U32  %1, %10, %18;"
-    "V_SUBB_U32  %2, %11, %19;"
-    "V_SUBB_U32  %3, %12, %20;"
-    "V_SUBB_U32  %4, %13, %21;"
-    "V_SUBB_U32  %5, %14, %22;"
-    "V_SUBB_U32  %6, %15, %23;"
-    "V_SUBB_U32  %7, %16, %24;"
-    "V_SUBB_U32  %8,   0,   0;"
-    : "=v"(r[0]), "=v"(r[1]), "=v"(r[2]), "=v"(r[3]), "=v"(r[4]), "=v"(r[5]), "=v"(r[6]), "=v"(r[7]),
-      "=v"(c)
-    :  "v"(a[0]),  "v"(a[1]),  "v"(a[2]),  "v"(a[3]),  "v"(a[4]),  "v"(a[5]),  "v"(a[6]),  "v"(a[7]),
-       "v"(b[0]),  "v"(b[1]),  "v"(b[2]),  "v"(b[3]),  "v"(b[4]),  "v"(b[5]),  "v"(b[6]),  "v"(b[7])
-  );
+  #elif defined IS_AMD
+  // Unrolled u64 borrow-chain: AMD compiler maps this to v_sub_co_u32/v_subb_co_u32.
+  // sign-extend each 64-bit result to propagate borrow into the next word.
+  {
+    u64 t64;
+    t64 = (u64)a[0] - (u64)b[0];           r[0] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[1] - (u64)b[1];          r[1] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[2] - (u64)b[2];          r[2] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[3] - (u64)b[3];          r[3] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[4] - (u64)b[4];          r[4] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[5] - (u64)b[5];          r[5] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[6] - (u64)b[6];          r[6] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    t64 += (u64)a[7] - (u64)b[7];          r[7] = (u32)t64; t64 = (u64)((long)t64 >> 32);
+    c = (u32)(t64 & 1);
+  }
   #else
   for (u32 i = 0; i < 8; i++)
   {
@@ -180,23 +178,20 @@ DECLSPEC u32 add (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u
   );
   // HIP doesnt support these so we stick to OpenCL (aka IS_AMD) - is also faster without asm
   //#elif (defined IS_AMD || defined IS_HIP) && HAS_VSUB == 1 && HAS_VSUBB == 1
-  #elif 0
-  __asm__ __volatile__
-  (
-    "V_ADD_U32   %0,  %9, %17;"
-    "V_ADDC_U32  %1, %10, %18;"
-    "V_ADDC_U32  %2, %11, %19;"
-    "V_ADDC_U32  %3, %12, %20;"
-    "V_ADDC_U32  %4, %13, %21;"
-    "V_ADDC_U32  %5, %14, %22;"
-    "V_ADDC_U32  %6, %15, %23;"
-    "V_ADDC_U32  %7, %16, %24;"
-    "V_ADDC_U32  %8,   0,   0;"
-    : "=v"(r[0]), "=v"(r[1]), "=v"(r[2]), "=v"(r[3]), "=v"(r[4]), "=v"(r[5]), "=v"(r[6]), "=v"(r[7]),
-      "=v"(c)
-    :  "v"(a[0]),  "v"(a[1]),  "v"(a[2]),  "v"(a[3]),  "v"(a[4]),  "v"(a[5]),  "v"(a[6]),  "v"(a[7]),
-       "v"(b[0]),  "v"(b[1]),  "v"(b[2]),  "v"(b[3]),  "v"(b[4]),  "v"(b[5]),  "v"(b[6]),  "v"(b[7])
-  );
+  #elif defined IS_AMD
+  // Unrolled u64 carry-chain: AMD compiler maps this to v_add_co_u32/v_addc_co_u32.
+  {
+    u64 t64;
+    t64 = (u64)a[0] + (u64)b[0];           r[0] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[1] + (u64)b[1];          r[1] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[2] + (u64)b[2];          r[2] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[3] + (u64)b[3];          r[3] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[4] + (u64)b[4];          r[4] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[5] + (u64)b[5];          r[5] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[6] + (u64)b[6];          r[6] = (u32)t64; t64 >>= 32;
+    t64 += (u64)a[7] + (u64)b[7];          r[7] = (u32)t64; t64 >>= 32;
+    c = (u32)t64;
+  }
   #else
   for (u32 i = 0; i < 8; i++)
   {
@@ -213,23 +208,34 @@ DECLSPEC u32 add (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u
 
 DECLSPEC void sub_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u32 *b)
 {
-  const u32 c = sub (r, a, b); // carry
+  const u32 borrow = sub (r, a, b);
 
-  if (c)
-  {
-    u32 t[8];
+  // Branch-free conditional add of p: if borrow==1 (a < b), r += p to stay in [0, p-1].
+  u32 p_arr[8];
 
-    t[0] = SECP256K1_P0;
-    t[1] = SECP256K1_P1;
-    t[2] = SECP256K1_P2;
-    t[3] = SECP256K1_P3;
-    t[4] = SECP256K1_P4;
-    t[5] = SECP256K1_P5;
-    t[6] = SECP256K1_P6;
-    t[7] = SECP256K1_P7;
+  p_arr[0] = SECP256K1_P0;
+  p_arr[1] = SECP256K1_P1;
+  p_arr[2] = SECP256K1_P2;
+  p_arr[3] = SECP256K1_P3;
+  p_arr[4] = SECP256K1_P4;
+  p_arr[5] = SECP256K1_P5;
+  p_arr[6] = SECP256K1_P6;
+  p_arr[7] = SECP256K1_P7;
 
-    add (r, r, t);
-  }
+  u32 tmp[8];
+
+  add (tmp, r, p_arr);  // tmp = r + p  (correct result when borrow == 1)
+
+  const u32 mask = -(borrow);  // 0xFFFFFFFF if borrow, 0 otherwise
+
+  r[0] = (tmp[0] & mask) | (r[0] & ~mask);
+  r[1] = (tmp[1] & mask) | (r[1] & ~mask);
+  r[2] = (tmp[2] & mask) | (r[2] & ~mask);
+  r[3] = (tmp[3] & mask) | (r[3] & ~mask);
+  r[4] = (tmp[4] & mask) | (r[4] & ~mask);
+  r[5] = (tmp[5] & mask) | (r[5] & ~mask);
+  r[6] = (tmp[6] & mask) | (r[6] & ~mask);
+  r[7] = (tmp[7] & mask) | (r[7] & ~mask);
 }
 
 DECLSPEC void add_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u32 *b)
@@ -237,45 +243,37 @@ DECLSPEC void add_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS co
   const u32 c = add (r, a, b); // carry
 
   /*
-   * Modulo operation:
+   * Branch-free modular reduction: subtract p if r >= p (or c == 1, i.e. sum overflowed).
+   * sub(tmp, r, p): borrow==0 means r >= p, borrow==1 means r < p.
+   * Select tmp when: c==1 (definite overflow) OR borrow==0 (r >= p without overflow).
    */
 
-  // note: we could have an early exit in case of c == 1 => sub ()
+  u32 p_arr[8];
 
-  u32 t[8];
+  p_arr[0] = SECP256K1_P0;
+  p_arr[1] = SECP256K1_P1;
+  p_arr[2] = SECP256K1_P2;
+  p_arr[3] = SECP256K1_P3;
+  p_arr[4] = SECP256K1_P4;
+  p_arr[5] = SECP256K1_P5;
+  p_arr[6] = SECP256K1_P6;
+  p_arr[7] = SECP256K1_P7;
 
-  t[0] = SECP256K1_P0;
-  t[1] = SECP256K1_P1;
-  t[2] = SECP256K1_P2;
-  t[3] = SECP256K1_P3;
-  t[4] = SECP256K1_P4;
-  t[5] = SECP256K1_P5;
-  t[6] = SECP256K1_P6;
-  t[7] = SECP256K1_P7;
+  u32 tmp[8];
 
-  // check if modulo operation is needed
+  const u32 borrow = sub (tmp, r, p_arr);  // tmp = r - p; borrow==1 means r < p
 
-  u32 mod = 1;
+  // Use tmp (r - p) when c==1 (overflow) OR borrow==0 (r >= p)
+  const u32 mask = -(c | (borrow ^ 1u));  // 0xFFFFFFFF if need to subtract, 0 otherwise
 
-  if (c == 0)
-  {
-    for (int i = 7; i >= 0; i--)
-    {
-      if (r[i] < t[i])
-      {
-        mod = 0;
-
-        break; // or return ! (check if faster)
-      }
-
-      if (r[i] > t[i]) break;
-    }
-  }
-
-  if (mod == 1)
-  {
-    sub (r, r, t);
-  }
+  r[0] = (tmp[0] & mask) | (r[0] & ~mask);
+  r[1] = (tmp[1] & mask) | (r[1] & ~mask);
+  r[2] = (tmp[2] & mask) | (r[2] & ~mask);
+  r[3] = (tmp[3] & mask) | (r[3] & ~mask);
+  r[4] = (tmp[4] & mask) | (r[4] & ~mask);
+  r[5] = (tmp[5] & mask) | (r[5] & ~mask);
+  r[6] = (tmp[6] & mask) | (r[6] & ~mask);
+  r[7] = (tmp[7] & mask) | (r[7] & ~mask);
 }
 
 DECLSPEC void mod_512 (PRIVATE_AS u32 *n)
@@ -616,6 +614,63 @@ DECLSPEC void mod_512 (PRIVATE_AS u32 *n)
   (c_) += (u32)(_muladd_ss < _muladd_pp);                            \
 } while (0)
 
+/*
+ * reduce_mod_p: Reduce a 256-bit value r (with up to 2-bit carry c representing
+ * r + c*2^256) modulo secp256k1 prime p = 2^256 - 2^32 - 977.
+ *
+ * The carry c arises from the two-pass omega-reduction in mul_mod/sqr_mod.
+ * Two branch-free conditional-subtract passes are sufficient for c in {0,1,2}.
+ * Each pass: compute tmp = r - p; select tmp if (c > 0) OR (r >= p, i.e. borrow==0).
+ * When borrow==1 and we selected tmp, it means we "consumed" one unit of c
+ * (the wrap-around adds 2^256 which cancels one p subtraction).
+ *
+ * p is provided as p_arr[8] (caller-supplied to avoid redundant initialization
+ * when the caller already has p loaded).
+ */
+DECLSPEC void reduce_mod_p (PRIVATE_AS u32 *r, u32 c, PRIVATE_AS const u32 *p_arr)
+{
+  u32 tmp[8];
+
+  /* Pass 1: subtract p if V = r + c*2^256 >= p */
+  {
+    const u32 borrow = sub (tmp, r, p_arr);
+    const u32 mask   = -(c | (borrow ^ 1u));
+
+    r[0] = (tmp[0] & mask) | (r[0] & ~mask);
+    r[1] = (tmp[1] & mask) | (r[1] & ~mask);
+    r[2] = (tmp[2] & mask) | (r[2] & ~mask);
+    r[3] = (tmp[3] & mask) | (r[3] & ~mask);
+    r[4] = (tmp[4] & mask) | (r[4] & ~mask);
+    r[5] = (tmp[5] & mask) | (r[5] & ~mask);
+    r[6] = (tmp[6] & mask) | (r[6] & ~mask);
+    r[7] = (tmp[7] & mask) | (r[7] & ~mask);
+
+    /* Update carry c: when we selected tmp (mask == 0xFFFFFFFF) AND sub() wrapped
+     * (borrow == 1, meaning stored r < p), the wrap-around absorbed one "2^256" unit
+     * from c, so c must decrease by 1.  Three conditions are AND-ed together:
+     *   (mask >> 31)  — 1 iff we selected tmp (subtracted), 0 otherwise
+     *   borrow        — 1 iff sub() wrapped (r < p before subtraction)
+     *   (c != 0u)     — guard against decrementing an already-zero c
+     * When borrow == 0 (r >= p, no wrap), the "true" carry does not change. */
+    c -= (mask >> 31) & borrow & (u32)(c != 0u);
+  }
+
+  /* Pass 2: subtract p again if still V >= p (handles c==2 and the c==1,r>=p case) */
+  {
+    const u32 borrow = sub (tmp, r, p_arr);
+    const u32 mask   = -(c | (borrow ^ 1u));
+
+    r[0] = (tmp[0] & mask) | (r[0] & ~mask);
+    r[1] = (tmp[1] & mask) | (r[1] & ~mask);
+    r[2] = (tmp[2] & mask) | (r[2] & ~mask);
+    r[3] = (tmp[3] & mask) | (r[3] & ~mask);
+    r[4] = (tmp[4] & mask) | (r[4] & ~mask);
+    r[5] = (tmp[5] & mask) | (r[5] & ~mask);
+    r[6] = (tmp[6] & mask) | (r[6] & ~mask);
+    r[7] = (tmp[7] & mask) | (r[7] & ~mask);
+  }
+}
+
 DECLSPEC void mul_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS const u32 *b)
 {
   u32 t[16] = { 0 }; // we need up to double the space (2 * 8)
@@ -817,22 +872,7 @@ DECLSPEC void mul_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a, PRIVATE_AS co
   t[6] = SECP256K1_P6;
   t[7] = SECP256K1_P7;
 
-  for (u32 i = c; i > 0; i--)
-  {
-    sub (r, r, t);
-  }
-
-  for (int i = 7; i >= 0; i--)
-  {
-    if (r[i] < t[i]) break;
-
-    if (r[i] > t[i])
-    {
-      sub (r, r, t);
-
-      break;
-    }
-  }
+  reduce_mod_p (r, c, t);
 }
 
 /*
@@ -1044,104 +1084,161 @@ DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
   u32 t1 = 0;
   u32 c  = 0;
 
-  // Handle lower half of product (i = 0 to 7)
-  #pragma unroll 8
-  for (u32 i = 0; i < 8; i++)
-  {
-    // Add cross products (doubled)
-    #pragma unroll 4
-    for (u32 j = 0; j < (i + 1) / 2; j++)
-    {
-      u64 p = ((u64) a[j]) * a[i - j];
+  /*
+   * Fully-unrolled squaring using symmetry: a[i]*a[j] for i<j appears twice
+   * (handled by SQR_ADD2), diagonal terms a[i]*a[i] appear once (SQR_ADD).
+   *
+   * Macro conventions:
+   *   SQR_ADD(t0,t1,c, ai,aj)  — accumulate 1 * (ai*aj)
+   *   SQR_ADD2(t0,t1,c, ai,aj) — accumulate 2 * (ai*aj) with overflow tracking
+   */
 
-      u64 d = ((u64) t1) << 32 | t0;
+  /* Column 0: a[0]^2 */
+  { u64 _p = (u64)a[0] * a[0]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[0] = t0; t0 = t1; t1 = c; c = 0;
 
-      // Double the product
-      u64 p2 = p + p;  // 2*p
-      u32 overflow = (p2 < p) ? 1 : 0;  // Check if doubling overflowed
-      
-      d += p2;
+  /* Column 1: 2*a[0]*a[1] */
+  { u64 _p = (u64)a[0] * a[1]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[1] = t0; t0 = t1; t1 = c; c = 0;
 
-      t0 = (u32) d;
-      t1 = d >> 32;
+  /* Column 2: 2*a[0]*a[2] + a[1]^2 */
+  { u64 _p = (u64)a[0] * a[2]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[1] * a[1]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[2] = t0; t0 = t1; t1 = c; c = 0;
 
-      c += (d < p2) + overflow;  // Proper carry detection
-    }
+  /* Column 3: 2*(a[0]*a[3] + a[1]*a[2]) */
+  { u64 _p = (u64)a[0] * a[3]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[1] * a[2]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[3] = t0; t0 = t1; t1 = c; c = 0;
 
-    // Add diagonal term if i is even
-    if ((i & 1) == 0)
-    {
-      u32 half_idx = i / 2;
-      u64 p = ((u64) a[half_idx]) * a[half_idx];
+  /* Column 4: 2*(a[0]*a[4] + a[1]*a[3]) + a[2]^2 */
+  { u64 _p = (u64)a[0] * a[4]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[1] * a[3]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[2] * a[2]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[4] = t0; t0 = t1; t1 = c; c = 0;
 
-      u64 d = ((u64) t1) << 32 | t0;
+  /* Column 5: 2*(a[0]*a[5] + a[1]*a[4] + a[2]*a[3]) */
+  { u64 _p = (u64)a[0] * a[5]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[1] * a[4]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[2] * a[3]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[5] = t0; t0 = t1; t1 = c; c = 0;
 
-      d += p;
+  /* Column 6: 2*(a[0]*a[6] + a[1]*a[5] + a[2]*a[4]) + a[3]^2 */
+  { u64 _p = (u64)a[0] * a[6]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[1] * a[5]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[2] * a[4]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[3] * a[3]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[6] = t0; t0 = t1; t1 = c; c = 0;
 
-      t0 = (u32) d;
-      t1 = d >> 32;
+  /* Column 7: 2*(a[0]*a[7] + a[1]*a[6] + a[2]*a[5] + a[3]*a[4]) */
+  { u64 _p = (u64)a[0] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[1] * a[6]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[2] * a[5]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[3] * a[4]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[7] = t0; t0 = t1; t1 = c; c = 0;
 
-      c += d < p;
-    }
+  /* Column 8: 2*(a[1]*a[7] + a[2]*a[6] + a[3]*a[5]) + a[4]^2 */
+  { u64 _p = (u64)a[1] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[2] * a[6]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[3] * a[5]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[4] * a[4]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[8] = t0; t0 = t1; t1 = c; c = 0;
 
-    t[i] = t0;
+  /* Column 9: 2*(a[2]*a[7] + a[3]*a[6] + a[4]*a[5]) */
+  { u64 _p = (u64)a[2] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[3] * a[6]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[4] * a[5]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[9] = t0; t0 = t1; t1 = c; c = 0;
 
-    t0 = t1;
-    t1 = c;
+  /* Column 10: 2*(a[3]*a[7] + a[4]*a[6]) + a[5]^2 */
+  { u64 _p = (u64)a[3] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[4] * a[6]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[5] * a[5]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[10] = t0; t0 = t1; t1 = c; c = 0;
 
-    c = 0;
-  }
+  /* Column 11: 2*(a[4]*a[7] + a[5]*a[6]) */
+  { u64 _p = (u64)a[4] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[5] * a[6]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[11] = t0; t0 = t1; t1 = c; c = 0;
 
-  // Handle upper half of product (i = 8 to 15)
-  #pragma unroll 7
-  for (u32 i = 8; i < 15; i++)
-  {
-    // Add cross products (doubled)
-    u32 j_start = i - 7;
-    u32 j_end = (i + 1) / 2;
-    #pragma unroll 4
-    for (u32 j = j_start; j < j_end; j++)
-    {
-      u64 p = ((u64) a[j]) * a[i - j];
+  /* Column 12: 2*a[5]*a[7] + a[6]^2 */
+  { u64 _p = (u64)a[5] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  { u64 _p = (u64)a[6] * a[6]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[12] = t0; t0 = t1; t1 = c; c = 0;
 
-      u64 d = ((u64) t1) << 32 | t0;
+  /* Column 13: 2*a[6]*a[7] */
+  { u64 _p = (u64)a[6] * a[7]; u64 _p2 = _p + _p; u32 _ov = (u32)(_p2 < _p);
+    u64 _d = ((u64)t1 << 32) | t0; _d += _p2;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p2) + _ov; }
+  t[13] = t0; t0 = t1; t1 = c; c = 0;
 
-      // Double the product
-      u64 p2 = p + p;  // 2*p
-      u32 overflow = (p2 < p) ? 1 : 0;  // Check if doubling overflowed
-      
-      d += p2;
+  /* Column 14: a[7]^2 */
+  { u64 _p = (u64)a[7] * a[7]; u64 _d = ((u64)t1 << 32) | t0; _d += _p;
+    t0 = (u32)_d; t1 = (u32)(_d >> 32); c += (u32)(_d < _p); }
+  t[14] = t0; t0 = t1; t1 = c; c = 0;
 
-      t0 = (u32) d;
-      t1 = d >> 32;
-
-      c += (d < p2) + overflow;  // Proper carry detection
-    }
-
-    // Add diagonal term if i is even
-    if ((i & 1) == 0)
-    {
-      u32 half_idx = i / 2;
-      u64 p = ((u64) a[half_idx]) * a[half_idx];
-
-      u64 d = ((u64) t1) << 32 | t0;
-
-      d += p;
-
-      t0 = (u32) d;
-      t1 = d >> 32;
-
-      c += d < p;
-    }
-
-    t[i] = t0;
-
-    t0 = t1;
-    t1 = c;
-
-    c = 0;
-  }
-
+  /* Column 15 */
   t[15] = t0;
 
 
@@ -1218,22 +1315,7 @@ DECLSPEC void sqr_mod (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
   t[6] = SECP256K1_P6;
   t[7] = SECP256K1_P7;
 
-  for (u32 i = c; i > 0; i--)
-  {
-    sub (r, r, t);
-  }
-
-  for (int i = 7; i >= 0; i--)
-  {
-    if (r[i] < t[i]) break;
-
-    if (r[i] > t[i])
-    {
-      sub (r, r, t);
-
-      break;
-    }
-  }
+  reduce_mod_p (r, c, t);
 }
 
 DECLSPEC void sqrt_mod (PRIVATE_AS u32 *r)
