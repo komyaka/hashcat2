@@ -3,14 +3,15 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: implementation — Task 4: Window-NAF + Precomputed Tables
-TIMESTAMP: 2025-01-01T00:00:00Z
-DETAILS: WNAF_WINDOW_SIZE/TABLE_SIZE/MASK/HALF macros added; SECP256K1_NAF_BYTE_SIZE=65;
-  precomputed constants for 9G,11G,13G,15G (indices 96-191) added to header;
-  secp256k1_w5_t struct (192-word table); set_precomputed_basepoint_g_w5(),
-  convert_to_wnaf_byte(), point_mul_wnaf_w5() implemented in .cl;
-  Python/wnaf_autotune.py created (GPU cost model, autotune reports w=6 optimal);
-  Python/test_wnaf_window.py created with 68 tests; 151 total tests pass.
+PHASE: implementation — Task 5: SHMEM/LDS Memory Optimizations
+TIMESTAMP: 2026-03-07T10:11:54Z
+DETAILS: SECP256K1_USE_SHMEM feature flag, SECP256K1_SHMEM_SIZE=96,
+  SECP256K1_W5_SHMEM_SIZE=192 added to header; 4 new LOCAL_AS functions:
+  set_precomputed_basepoint_g_lm(), point_mul_xy_lm(),
+  set_precomputed_basepoint_g_w5_lm(), point_mul_wnaf_w5_lm() implemented;
+  m35910_a0/a1/a3-pure.cl updated to use workgroup-shared table via
+  LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE] + SYNC_THREADS();
+  Python/test_shmem.py created with 56 tests; 207 total tests pass.
 ```
 
 ## IMPLEMENTATION LOG
@@ -332,3 +333,63 @@ AGENT: coder
 PHASE: implementation — Task 4
 TIMESTAMP: 2025-01-01T00:00:00Z
 DETAILS: All acceptance criteria met. 151 tests pass. CodeQL: 0 alerts.
+
+---
+
+## IMPLEMENTATION — Task 5: SHMEM/LDS Memory Optimizations
+
+### Changes Made
+| File | Change Type | Description |
+|---|---|---|
+| `OpenCL/inc_ecc_secp256k1.h` | modified | Added SECP256K1_USE_SHMEM flag, SECP256K1_SHMEM_SIZE=96, SECP256K1_W5_SHMEM_SIZE=192, 4 new SHMEM function declarations |
+| `OpenCL/inc_ecc_secp256k1.cl` | modified | Appended 4 new SHMEM functions: set_precomputed_basepoint_g_lm, point_mul_xy_lm, set_precomputed_basepoint_g_w5_lm, point_mul_wnaf_w5_lm |
+| `OpenCL/m35910_a0-pure.cl` | modified | Replaced private preG table with LOCAL_VK SHMEM path in mxx+sxx kernels |
+| `OpenCL/m35910_a1-pure.cl` | modified | Replaced private preG table with LOCAL_VK SHMEM path in mxx+sxx kernels |
+| `OpenCL/m35910_a3-pure.cl` | modified | Replaced private preG table with LOCAL_VK SHMEM path in mxx+sxx kernels |
+| `Python/test_shmem.py` | created | 56 new unit tests for SHMEM optimization |
+
+### Tests Added / Modified
+| Test file | Test count | Covers AC |
+|---|---|---|
+| `Python/test_shmem.py` | 56 | All AC |
+
+### Test Results
+```
+Ran 207 tests in 0.135s
+OK
+```
+
+### Acceptance Criteria Status
+- [x] AC-1: SECP256K1_USE_SHMEM, SECP256K1_SHMEM_SIZE, SECP256K1_W5_SHMEM_SIZE macros in header — PASSED
+- [x] AC-2: set_precomputed_basepoint_g_lm declared and implemented (96-word + SYNC_THREADS) — PASSED
+- [x] AC-3: point_mul_xy_lm declared and implemented (reads from LOCAL_AS) — PASSED
+- [x] AC-4: set_precomputed_basepoint_g_w5_lm declared and implemented (192-word) — PASSED
+- [x] AC-5: point_mul_wnaf_w5_lm declared and implemented — PASSED
+- [x] AC-6: Module files m35910_* updated with SHMEM path — PASSED
+- [x] AC-7: m35912_* files do not exist; skipped — N/A
+- [x] AC-8: Python/test_shmem.py with ≥20 tests (56), all passing — PASSED
+- [x] AC-9: All existing Python tests (151) still pass (207 total) — PASSED
+
+### Security Summary
+CodeQL analysis: 0 alerts found. No secrets or credentials in code.
+
+### Implementation Status
+STATUS: VERIFIED
+AGENT: coder
+PHASE: implementation — Task 5
+TIMESTAMP: 2025-01-15T00:00:00Z
+DETAILS: All 9 acceptance criteria met. 207 tests pass (56 new + 151 existing). CodeQL: 0 alerts.
+
+### Phase 5 — SHMEM/LDS Memory Optimizations (Complete)
+- [x] `SECP256K1_USE_SHMEM` feature-flag macro added to `inc_ecc_secp256k1.h`
+- [x] `SECP256K1_SHMEM_SIZE=96` (w=4 table) and `SECP256K1_W5_SHMEM_SIZE=192` (w=5 table) macros added
+- [x] `set_precomputed_basepoint_g_lm()` — workgroup-cooperative init (lid/lsz stride + SYNC_THREADS)
+- [x] `point_mul_xy_lm()` — w=4 point multiplication reading from `LOCAL_AS const u32 *`
+- [x] `set_precomputed_basepoint_g_w5_lm()` — same for 192-word w=5 table
+- [x] `point_mul_wnaf_w5_lm()` — w=5 wNAF multiplication reading from `LOCAL_AS const u32 *`
+- [x] All 4 functions declared in `inc_ecc_secp256k1.h` with documentation
+- [x] `OpenCL/m35910_a0-pure.cl` — both kernels (mxx/sxx) use SHMEM path
+- [x] `OpenCL/m35910_a1-pure.cl` — both kernels use SHMEM path
+- [x] `OpenCL/m35910_a3-pure.cl` — both kernels use SHMEM path
+- [x] `Python/test_shmem.py` created with 56 tests (all passing)
+- [x] 207 total Python tests pass (151 existing + 56 new)

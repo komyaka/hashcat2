@@ -3659,3 +3659,304 @@ DECLSPEC void point_mul_wnaf_w5 (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE
   mul_mod (z1, z2, z1); // z^3
   mul_mod (y1, y1, z1); // y_affine
 }
+
+/*
+ * Fill the w=4 precomputed basepoint table (96 u32 words) into shared/local memory.
+ * Called once per workgroup before point_mul_xy_lm.
+ * All threads in the workgroup must call this function cooperatively.
+ * A SYNC_THREADS() barrier is issued at the end so callers need not add another.
+ *
+ * @param lm_xy  out: LOCAL_AS u32 array of size SECP256K1_SHMEM_SIZE (96 words).
+ * @param lid    in:  get_local_id(0) -- lane index within workgroup.
+ * @param lsz    in:  get_local_size(0) -- total workgroup size.
+ */
+DECLSPEC void set_precomputed_basepoint_g_lm (LOCAL_AS u32 *lm_xy, const u64 lid, const u64 lsz)
+{
+  // Cooperative initialization: each lane fills one or more words.
+  // Constant table stored as a compile-time array of 96 values, indexed by lane.
+  const u32 SECP256K1_G_CONSTANTS[96] = {
+    SECP256K1_G_PRE_COMPUTED_00, SECP256K1_G_PRE_COMPUTED_01, SECP256K1_G_PRE_COMPUTED_02, SECP256K1_G_PRE_COMPUTED_03,
+    SECP256K1_G_PRE_COMPUTED_04, SECP256K1_G_PRE_COMPUTED_05, SECP256K1_G_PRE_COMPUTED_06, SECP256K1_G_PRE_COMPUTED_07,
+    SECP256K1_G_PRE_COMPUTED_08, SECP256K1_G_PRE_COMPUTED_09, SECP256K1_G_PRE_COMPUTED_10, SECP256K1_G_PRE_COMPUTED_11,
+    SECP256K1_G_PRE_COMPUTED_12, SECP256K1_G_PRE_COMPUTED_13, SECP256K1_G_PRE_COMPUTED_14, SECP256K1_G_PRE_COMPUTED_15,
+    SECP256K1_G_PRE_COMPUTED_16, SECP256K1_G_PRE_COMPUTED_17, SECP256K1_G_PRE_COMPUTED_18, SECP256K1_G_PRE_COMPUTED_19,
+    SECP256K1_G_PRE_COMPUTED_20, SECP256K1_G_PRE_COMPUTED_21, SECP256K1_G_PRE_COMPUTED_22, SECP256K1_G_PRE_COMPUTED_23,
+    SECP256K1_G_PRE_COMPUTED_24, SECP256K1_G_PRE_COMPUTED_25, SECP256K1_G_PRE_COMPUTED_26, SECP256K1_G_PRE_COMPUTED_27,
+    SECP256K1_G_PRE_COMPUTED_28, SECP256K1_G_PRE_COMPUTED_29, SECP256K1_G_PRE_COMPUTED_30, SECP256K1_G_PRE_COMPUTED_31,
+    SECP256K1_G_PRE_COMPUTED_32, SECP256K1_G_PRE_COMPUTED_33, SECP256K1_G_PRE_COMPUTED_34, SECP256K1_G_PRE_COMPUTED_35,
+    SECP256K1_G_PRE_COMPUTED_36, SECP256K1_G_PRE_COMPUTED_37, SECP256K1_G_PRE_COMPUTED_38, SECP256K1_G_PRE_COMPUTED_39,
+    SECP256K1_G_PRE_COMPUTED_40, SECP256K1_G_PRE_COMPUTED_41, SECP256K1_G_PRE_COMPUTED_42, SECP256K1_G_PRE_COMPUTED_43,
+    SECP256K1_G_PRE_COMPUTED_44, SECP256K1_G_PRE_COMPUTED_45, SECP256K1_G_PRE_COMPUTED_46, SECP256K1_G_PRE_COMPUTED_47,
+    SECP256K1_G_PRE_COMPUTED_48, SECP256K1_G_PRE_COMPUTED_49, SECP256K1_G_PRE_COMPUTED_50, SECP256K1_G_PRE_COMPUTED_51,
+    SECP256K1_G_PRE_COMPUTED_52, SECP256K1_G_PRE_COMPUTED_53, SECP256K1_G_PRE_COMPUTED_54, SECP256K1_G_PRE_COMPUTED_55,
+    SECP256K1_G_PRE_COMPUTED_56, SECP256K1_G_PRE_COMPUTED_57, SECP256K1_G_PRE_COMPUTED_58, SECP256K1_G_PRE_COMPUTED_59,
+    SECP256K1_G_PRE_COMPUTED_60, SECP256K1_G_PRE_COMPUTED_61, SECP256K1_G_PRE_COMPUTED_62, SECP256K1_G_PRE_COMPUTED_63,
+    SECP256K1_G_PRE_COMPUTED_64, SECP256K1_G_PRE_COMPUTED_65, SECP256K1_G_PRE_COMPUTED_66, SECP256K1_G_PRE_COMPUTED_67,
+    SECP256K1_G_PRE_COMPUTED_68, SECP256K1_G_PRE_COMPUTED_69, SECP256K1_G_PRE_COMPUTED_70, SECP256K1_G_PRE_COMPUTED_71,
+    SECP256K1_G_PRE_COMPUTED_72, SECP256K1_G_PRE_COMPUTED_73, SECP256K1_G_PRE_COMPUTED_74, SECP256K1_G_PRE_COMPUTED_75,
+    SECP256K1_G_PRE_COMPUTED_76, SECP256K1_G_PRE_COMPUTED_77, SECP256K1_G_PRE_COMPUTED_78, SECP256K1_G_PRE_COMPUTED_79,
+    SECP256K1_G_PRE_COMPUTED_80, SECP256K1_G_PRE_COMPUTED_81, SECP256K1_G_PRE_COMPUTED_82, SECP256K1_G_PRE_COMPUTED_83,
+    SECP256K1_G_PRE_COMPUTED_84, SECP256K1_G_PRE_COMPUTED_85, SECP256K1_G_PRE_COMPUTED_86, SECP256K1_G_PRE_COMPUTED_87,
+    SECP256K1_G_PRE_COMPUTED_88, SECP256K1_G_PRE_COMPUTED_89, SECP256K1_G_PRE_COMPUTED_90, SECP256K1_G_PRE_COMPUTED_91,
+    SECP256K1_G_PRE_COMPUTED_92, SECP256K1_G_PRE_COMPUTED_93, SECP256K1_G_PRE_COMPUTED_94, SECP256K1_G_PRE_COMPUTED_95,
+  };
+
+  for (u64 i = lid; i < SECP256K1_SHMEM_SIZE; i += lsz)
+  {
+    lm_xy[i] = SECP256K1_G_CONSTANTS[i];
+  }
+
+  SYNC_THREADS ();
+}
+
+/*
+ * Point multiplication using the w=4 precomputed table in shared/local memory.
+ * Identical to point_mul_xy() but reads the table from lm_xy (LOCAL_AS).
+ * Must be preceded by set_precomputed_basepoint_g_lm() in the same workgroup.
+ *
+ * @param x1    out: x coordinate (8 u32).
+ * @param y1    out: y coordinate (8 u32).
+ * @param k     in:  256-bit scalar (8 u32 little-endian).
+ * @param lm_xy in:  LOCAL_AS u32[SECP256K1_SHMEM_SIZE] table.
+ */
+DECLSPEC void point_mul_xy_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy)
+{
+  u32 naf[SECP256K1_NAF_SIZE] = { 0 };
+
+  int loop_start = convert_to_window_naf (naf, k);
+
+  const u32 multiplier = (naf[loop_start >> 3] >> ((loop_start & 7) << 2)) & 0x0f;
+
+  const u32 odd = multiplier & 1;
+
+  const u32 x_pos = ((multiplier - 1 + odd) >> 1) * 24;
+  const u32 y_pos = odd ? (x_pos + 8) : (x_pos + 16);
+
+  x1[0] = lm_xy[x_pos + 0];
+  x1[1] = lm_xy[x_pos + 1];
+  x1[2] = lm_xy[x_pos + 2];
+  x1[3] = lm_xy[x_pos + 3];
+  x1[4] = lm_xy[x_pos + 4];
+  x1[5] = lm_xy[x_pos + 5];
+  x1[6] = lm_xy[x_pos + 6];
+  x1[7] = lm_xy[x_pos + 7];
+
+  y1[0] = lm_xy[y_pos + 0];
+  y1[1] = lm_xy[y_pos + 1];
+  y1[2] = lm_xy[y_pos + 2];
+  y1[3] = lm_xy[y_pos + 3];
+  y1[4] = lm_xy[y_pos + 4];
+  y1[5] = lm_xy[y_pos + 5];
+  y1[6] = lm_xy[y_pos + 6];
+  y1[7] = lm_xy[y_pos + 7];
+
+  u32 z1[8] = { 0 };
+
+  z1[0] = 1;
+
+  for (int pos = loop_start - 1; pos >= 0; pos--)
+  {
+    point_double (x1, y1, z1);
+
+    const u32 mul = (naf[pos >> 3] >> ((pos & 7) << 2)) & 0x0f;
+
+    if (mul)
+    {
+      const u32 o  = mul & 1;
+      const u32 xp = ((mul - 1 + o) >> 1) * 24;
+      const u32 yp = o ? (xp + 8) : (xp + 16);
+
+      u32 x2[8];
+      x2[0] = lm_xy[xp + 0];
+      x2[1] = lm_xy[xp + 1];
+      x2[2] = lm_xy[xp + 2];
+      x2[3] = lm_xy[xp + 3];
+      x2[4] = lm_xy[xp + 4];
+      x2[5] = lm_xy[xp + 5];
+      x2[6] = lm_xy[xp + 6];
+      x2[7] = lm_xy[xp + 7];
+
+      u32 y2[8];
+      y2[0] = lm_xy[yp + 0];
+      y2[1] = lm_xy[yp + 1];
+      y2[2] = lm_xy[yp + 2];
+      y2[3] = lm_xy[yp + 3];
+      y2[4] = lm_xy[yp + 4];
+      y2[5] = lm_xy[yp + 5];
+      y2[6] = lm_xy[yp + 6];
+      y2[7] = lm_xy[yp + 7];
+
+      point_add (x1, y1, z1, x2, y2);
+    }
+  }
+
+  inv_mod (z1);
+
+  u32 z2[8];
+
+  mul_mod (z2, z1, z1);
+  mul_mod (x1, x1, z2);
+
+  mul_mod (z1, z2, z1);
+  mul_mod (y1, y1, z1);
+}
+
+/*
+ * Fill the w=5 precomputed basepoint table (192 u32 words) into shared/local memory.
+ * All threads in the workgroup must call this function cooperatively.
+ * A SYNC_THREADS() barrier is issued at the end.
+ *
+ * @param lm_xy  out: LOCAL_AS u32 array of size SECP256K1_W5_SHMEM_SIZE (192 words).
+ * @param lid    in:  get_local_id(0).
+ * @param lsz    in:  get_local_size(0).
+ */
+DECLSPEC void set_precomputed_basepoint_g_w5_lm (LOCAL_AS u32 *lm_xy, const u64 lid, const u64 lsz)
+{
+  const u32 SECP256K1_G_W5_CONSTANTS[192] = {
+    SECP256K1_G_PRE_COMPUTED_00,  SECP256K1_G_PRE_COMPUTED_01,  SECP256K1_G_PRE_COMPUTED_02,  SECP256K1_G_PRE_COMPUTED_03,
+    SECP256K1_G_PRE_COMPUTED_04,  SECP256K1_G_PRE_COMPUTED_05,  SECP256K1_G_PRE_COMPUTED_06,  SECP256K1_G_PRE_COMPUTED_07,
+    SECP256K1_G_PRE_COMPUTED_08,  SECP256K1_G_PRE_COMPUTED_09,  SECP256K1_G_PRE_COMPUTED_10,  SECP256K1_G_PRE_COMPUTED_11,
+    SECP256K1_G_PRE_COMPUTED_12,  SECP256K1_G_PRE_COMPUTED_13,  SECP256K1_G_PRE_COMPUTED_14,  SECP256K1_G_PRE_COMPUTED_15,
+    SECP256K1_G_PRE_COMPUTED_16,  SECP256K1_G_PRE_COMPUTED_17,  SECP256K1_G_PRE_COMPUTED_18,  SECP256K1_G_PRE_COMPUTED_19,
+    SECP256K1_G_PRE_COMPUTED_20,  SECP256K1_G_PRE_COMPUTED_21,  SECP256K1_G_PRE_COMPUTED_22,  SECP256K1_G_PRE_COMPUTED_23,
+    SECP256K1_G_PRE_COMPUTED_24,  SECP256K1_G_PRE_COMPUTED_25,  SECP256K1_G_PRE_COMPUTED_26,  SECP256K1_G_PRE_COMPUTED_27,
+    SECP256K1_G_PRE_COMPUTED_28,  SECP256K1_G_PRE_COMPUTED_29,  SECP256K1_G_PRE_COMPUTED_30,  SECP256K1_G_PRE_COMPUTED_31,
+    SECP256K1_G_PRE_COMPUTED_32,  SECP256K1_G_PRE_COMPUTED_33,  SECP256K1_G_PRE_COMPUTED_34,  SECP256K1_G_PRE_COMPUTED_35,
+    SECP256K1_G_PRE_COMPUTED_36,  SECP256K1_G_PRE_COMPUTED_37,  SECP256K1_G_PRE_COMPUTED_38,  SECP256K1_G_PRE_COMPUTED_39,
+    SECP256K1_G_PRE_COMPUTED_40,  SECP256K1_G_PRE_COMPUTED_41,  SECP256K1_G_PRE_COMPUTED_42,  SECP256K1_G_PRE_COMPUTED_43,
+    SECP256K1_G_PRE_COMPUTED_44,  SECP256K1_G_PRE_COMPUTED_45,  SECP256K1_G_PRE_COMPUTED_46,  SECP256K1_G_PRE_COMPUTED_47,
+    SECP256K1_G_PRE_COMPUTED_48,  SECP256K1_G_PRE_COMPUTED_49,  SECP256K1_G_PRE_COMPUTED_50,  SECP256K1_G_PRE_COMPUTED_51,
+    SECP256K1_G_PRE_COMPUTED_52,  SECP256K1_G_PRE_COMPUTED_53,  SECP256K1_G_PRE_COMPUTED_54,  SECP256K1_G_PRE_COMPUTED_55,
+    SECP256K1_G_PRE_COMPUTED_56,  SECP256K1_G_PRE_COMPUTED_57,  SECP256K1_G_PRE_COMPUTED_58,  SECP256K1_G_PRE_COMPUTED_59,
+    SECP256K1_G_PRE_COMPUTED_60,  SECP256K1_G_PRE_COMPUTED_61,  SECP256K1_G_PRE_COMPUTED_62,  SECP256K1_G_PRE_COMPUTED_63,
+    SECP256K1_G_PRE_COMPUTED_64,  SECP256K1_G_PRE_COMPUTED_65,  SECP256K1_G_PRE_COMPUTED_66,  SECP256K1_G_PRE_COMPUTED_67,
+    SECP256K1_G_PRE_COMPUTED_68,  SECP256K1_G_PRE_COMPUTED_69,  SECP256K1_G_PRE_COMPUTED_70,  SECP256K1_G_PRE_COMPUTED_71,
+    SECP256K1_G_PRE_COMPUTED_72,  SECP256K1_G_PRE_COMPUTED_73,  SECP256K1_G_PRE_COMPUTED_74,  SECP256K1_G_PRE_COMPUTED_75,
+    SECP256K1_G_PRE_COMPUTED_76,  SECP256K1_G_PRE_COMPUTED_77,  SECP256K1_G_PRE_COMPUTED_78,  SECP256K1_G_PRE_COMPUTED_79,
+    SECP256K1_G_PRE_COMPUTED_80,  SECP256K1_G_PRE_COMPUTED_81,  SECP256K1_G_PRE_COMPUTED_82,  SECP256K1_G_PRE_COMPUTED_83,
+    SECP256K1_G_PRE_COMPUTED_84,  SECP256K1_G_PRE_COMPUTED_85,  SECP256K1_G_PRE_COMPUTED_86,  SECP256K1_G_PRE_COMPUTED_87,
+    SECP256K1_G_PRE_COMPUTED_88,  SECP256K1_G_PRE_COMPUTED_89,  SECP256K1_G_PRE_COMPUTED_90,  SECP256K1_G_PRE_COMPUTED_91,
+    SECP256K1_G_PRE_COMPUTED_92,  SECP256K1_G_PRE_COMPUTED_93,  SECP256K1_G_PRE_COMPUTED_94,  SECP256K1_G_PRE_COMPUTED_95,
+    SECP256K1_G_PRE_COMPUTED_96,  SECP256K1_G_PRE_COMPUTED_97,  SECP256K1_G_PRE_COMPUTED_98,  SECP256K1_G_PRE_COMPUTED_99,
+    SECP256K1_G_PRE_COMPUTED_100, SECP256K1_G_PRE_COMPUTED_101, SECP256K1_G_PRE_COMPUTED_102, SECP256K1_G_PRE_COMPUTED_103,
+    SECP256K1_G_PRE_COMPUTED_104, SECP256K1_G_PRE_COMPUTED_105, SECP256K1_G_PRE_COMPUTED_106, SECP256K1_G_PRE_COMPUTED_107,
+    SECP256K1_G_PRE_COMPUTED_108, SECP256K1_G_PRE_COMPUTED_109, SECP256K1_G_PRE_COMPUTED_110, SECP256K1_G_PRE_COMPUTED_111,
+    SECP256K1_G_PRE_COMPUTED_112, SECP256K1_G_PRE_COMPUTED_113, SECP256K1_G_PRE_COMPUTED_114, SECP256K1_G_PRE_COMPUTED_115,
+    SECP256K1_G_PRE_COMPUTED_116, SECP256K1_G_PRE_COMPUTED_117, SECP256K1_G_PRE_COMPUTED_118, SECP256K1_G_PRE_COMPUTED_119,
+    SECP256K1_G_PRE_COMPUTED_120, SECP256K1_G_PRE_COMPUTED_121, SECP256K1_G_PRE_COMPUTED_122, SECP256K1_G_PRE_COMPUTED_123,
+    SECP256K1_G_PRE_COMPUTED_124, SECP256K1_G_PRE_COMPUTED_125, SECP256K1_G_PRE_COMPUTED_126, SECP256K1_G_PRE_COMPUTED_127,
+    SECP256K1_G_PRE_COMPUTED_128, SECP256K1_G_PRE_COMPUTED_129, SECP256K1_G_PRE_COMPUTED_130, SECP256K1_G_PRE_COMPUTED_131,
+    SECP256K1_G_PRE_COMPUTED_132, SECP256K1_G_PRE_COMPUTED_133, SECP256K1_G_PRE_COMPUTED_134, SECP256K1_G_PRE_COMPUTED_135,
+    SECP256K1_G_PRE_COMPUTED_136, SECP256K1_G_PRE_COMPUTED_137, SECP256K1_G_PRE_COMPUTED_138, SECP256K1_G_PRE_COMPUTED_139,
+    SECP256K1_G_PRE_COMPUTED_140, SECP256K1_G_PRE_COMPUTED_141, SECP256K1_G_PRE_COMPUTED_142, SECP256K1_G_PRE_COMPUTED_143,
+    SECP256K1_G_PRE_COMPUTED_144, SECP256K1_G_PRE_COMPUTED_145, SECP256K1_G_PRE_COMPUTED_146, SECP256K1_G_PRE_COMPUTED_147,
+    SECP256K1_G_PRE_COMPUTED_148, SECP256K1_G_PRE_COMPUTED_149, SECP256K1_G_PRE_COMPUTED_150, SECP256K1_G_PRE_COMPUTED_151,
+    SECP256K1_G_PRE_COMPUTED_152, SECP256K1_G_PRE_COMPUTED_153, SECP256K1_G_PRE_COMPUTED_154, SECP256K1_G_PRE_COMPUTED_155,
+    SECP256K1_G_PRE_COMPUTED_156, SECP256K1_G_PRE_COMPUTED_157, SECP256K1_G_PRE_COMPUTED_158, SECP256K1_G_PRE_COMPUTED_159,
+    SECP256K1_G_PRE_COMPUTED_160, SECP256K1_G_PRE_COMPUTED_161, SECP256K1_G_PRE_COMPUTED_162, SECP256K1_G_PRE_COMPUTED_163,
+    SECP256K1_G_PRE_COMPUTED_164, SECP256K1_G_PRE_COMPUTED_165, SECP256K1_G_PRE_COMPUTED_166, SECP256K1_G_PRE_COMPUTED_167,
+    SECP256K1_G_PRE_COMPUTED_168, SECP256K1_G_PRE_COMPUTED_169, SECP256K1_G_PRE_COMPUTED_170, SECP256K1_G_PRE_COMPUTED_171,
+    SECP256K1_G_PRE_COMPUTED_172, SECP256K1_G_PRE_COMPUTED_173, SECP256K1_G_PRE_COMPUTED_174, SECP256K1_G_PRE_COMPUTED_175,
+    SECP256K1_G_PRE_COMPUTED_176, SECP256K1_G_PRE_COMPUTED_177, SECP256K1_G_PRE_COMPUTED_178, SECP256K1_G_PRE_COMPUTED_179,
+    SECP256K1_G_PRE_COMPUTED_180, SECP256K1_G_PRE_COMPUTED_181, SECP256K1_G_PRE_COMPUTED_182, SECP256K1_G_PRE_COMPUTED_183,
+    SECP256K1_G_PRE_COMPUTED_184, SECP256K1_G_PRE_COMPUTED_185, SECP256K1_G_PRE_COMPUTED_186, SECP256K1_G_PRE_COMPUTED_187,
+    SECP256K1_G_PRE_COMPUTED_188, SECP256K1_G_PRE_COMPUTED_189, SECP256K1_G_PRE_COMPUTED_190, SECP256K1_G_PRE_COMPUTED_191,
+  };
+
+  for (u64 i = lid; i < SECP256K1_W5_SHMEM_SIZE; i += lsz)
+  {
+    lm_xy[i] = SECP256K1_G_W5_CONSTANTS[i];
+  }
+
+  SYNC_THREADS ();
+}
+
+/*
+ * Point multiplication using the w=5 precomputed table in shared/local memory.
+ * Identical to point_mul_wnaf_w5() but reads the table from lm_xy (LOCAL_AS).
+ * Must be preceded by set_precomputed_basepoint_g_w5_lm() in the same workgroup.
+ *
+ * @param x1    out: x coordinate (8 u32).
+ * @param y1    out: y coordinate (8 u32).
+ * @param k     in:  256-bit scalar (8 u32).
+ * @param lm_xy in:  LOCAL_AS u32[SECP256K1_W5_SHMEM_SIZE] table.
+ */
+DECLSPEC void point_mul_wnaf_w5_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy)
+{
+  u32 naf[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+
+  int loop_start = convert_to_wnaf_byte (naf, k);
+
+  const u32 multiplier0 = (naf[loop_start >> 2] >> ((loop_start & 3) << 3)) & 0xff;
+
+  const u32 odd0  = multiplier0 & 1;
+  const u32 xp0   = ((multiplier0 - 1 + odd0) >> 1) * 24;
+  const u32 yp0   = odd0 ? (xp0 + 8) : (xp0 + 16);
+
+  x1[0] = lm_xy[xp0 + 0];
+  x1[1] = lm_xy[xp0 + 1];
+  x1[2] = lm_xy[xp0 + 2];
+  x1[3] = lm_xy[xp0 + 3];
+  x1[4] = lm_xy[xp0 + 4];
+  x1[5] = lm_xy[xp0 + 5];
+  x1[6] = lm_xy[xp0 + 6];
+  x1[7] = lm_xy[xp0 + 7];
+
+  y1[0] = lm_xy[yp0 + 0];
+  y1[1] = lm_xy[yp0 + 1];
+  y1[2] = lm_xy[yp0 + 2];
+  y1[3] = lm_xy[yp0 + 3];
+  y1[4] = lm_xy[yp0 + 4];
+  y1[5] = lm_xy[yp0 + 5];
+  y1[6] = lm_xy[yp0 + 6];
+  y1[7] = lm_xy[yp0 + 7];
+
+  u32 z1[8] = { 0 };
+  z1[0] = 1;
+
+  for (int pos = loop_start - 1; pos >= 0; pos--)
+  {
+    point_double (x1, y1, z1);
+
+    const u32 multiplier = (naf[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+
+    if (multiplier)
+    {
+      const u32 odd  = multiplier & 1;
+      const u32 x_pos = ((multiplier - 1 + odd) >> 1) * 24;
+      const u32 y_pos = odd ? (x_pos + 8) : (x_pos + 16);
+
+      u32 x2[8];
+      x2[0] = lm_xy[x_pos + 0];
+      x2[1] = lm_xy[x_pos + 1];
+      x2[2] = lm_xy[x_pos + 2];
+      x2[3] = lm_xy[x_pos + 3];
+      x2[4] = lm_xy[x_pos + 4];
+      x2[5] = lm_xy[x_pos + 5];
+      x2[6] = lm_xy[x_pos + 6];
+      x2[7] = lm_xy[x_pos + 7];
+
+      u32 y2[8];
+      y2[0] = lm_xy[y_pos + 0];
+      y2[1] = lm_xy[y_pos + 1];
+      y2[2] = lm_xy[y_pos + 2];
+      y2[3] = lm_xy[y_pos + 3];
+      y2[4] = lm_xy[y_pos + 4];
+      y2[5] = lm_xy[y_pos + 5];
+      y2[6] = lm_xy[y_pos + 6];
+      y2[7] = lm_xy[y_pos + 7];
+
+      point_add (x1, y1, z1, x2, y2);
+    }
+  }
+
+  inv_mod (z1);
+
+  u32 z2[8];
+
+  mul_mod (z2, z1, z1);
+  mul_mod (x1, x1, z2);
+
+  mul_mod (z1, z2, z1);
+  mul_mod (y1, y1, z1);
+}
