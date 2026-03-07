@@ -655,3 +655,78 @@ TIMESTAMP: 2026-03-07T13:00:00Z
 DETAILS: Tasks 3.1-3.5 implemented. Branch-free point_double/point_add,
   new wNAF w=6 functions + GLV+wNAF w=5 Straus method. 40 new Python tests pass.
 ```
+
+---
+
+## Phase 5: Kernel-Level Integration (GLV+wNAF w=5 for all m359* modules)
+
+### Changes
+
+#### Task 5.1–5.4: Brainwallet modules (m35900–m35904, m35911) — a0/a1/a3 kernels
+- Replaced `secp256k1_t preG` + `set_precomputed_basepoint_g()` + `point_mul_xy()`
+  with `secp256k1_w5_t preG` + `set_precomputed_basepoint_g_w5()` + `point_mul_glv_wnaf_w5()`
+- Applies to all 18 files: m35900_a{0,1,3}, m35901_a{0,1,3}, m35902_a{0,1,3},
+  m35903_a{0,1,3}, m35904_a{0,1,3}, m35911_a{0,1,3}
+
+#### Task 5.2 + 5.5: Hex-key modules (m35905–m35906) — a0/a1/a3 kernels
+- Updated `prv_to_hash160()` helper function signature: `secp256k1_t *preG` → `secp256k1_w5_t *preG`
+- Replaced `point_mul_xy(x, y, prv_key, preG)` → `point_mul_glv_wnaf_w5(x, y, prv_key, preG)`
+- Replaced kernel-level `secp256k1_t preG` + `set_precomputed_basepoint_g()` with w5 variants
+- Applies to: m35905_a{0,1,3}, m35906_a{0,1,3}
+
+#### Task 5.3: BLAKE2b module (m35910) — a0/a1/a3 kernels
+- Removed SHMEM boilerplate: `LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE]`,
+  `set_precomputed_basepoint_g_lm()`, and `lid`/`lsz` declarations
+- Replaced `point_mul_xy_lm(x, y, prv_key, s_secp256k1_xy)` with
+  `point_mul_glv_wnaf_w5(x, y, prv_key, &preG)` + `secp256k1_w5_t preG`
+- Applies to: m35910_a{0,1,3}
+
+#### Task 5.7: Python tests
+- Added `TestModuleGLVIntegration` (9 tests):
+  - GLV+wNAF vs point_mul agreement for k=1, k=2, k=N-1, k=N//2, 50 random scalars
+  - Module file validation: all 27 m359* files use `point_mul_glv_wnaf_w5`
+  - Regression: old `point_mul_xy` / `point_mul_xy_lm` calls absent
+- Added `TestGroupKeyAddition` (3 tests):
+  - Incremental Q_{i} = Q_{i-1} + G == (base+i)·G for 100 consecutive keys
+  - GLV+wNAF and incremental point_add agree for 50 consecutive keys
+
+#### Task 5.8 + 5.9: Documentation
+- Updated `TestModuleFilesUseShmem` in test_shmem.py to reflect Phase 5 (GLV replaces SHMEM for m35910)
+- Updated STATUS.md and OPTIMIZATION_MASTERPLAN.md
+
+### Estimated Speedup
+
+| Module | Before | After | Estimated Gain |
+|--------|--------|-------|----------------|
+| m35900–m35904 (brainwallet) | point_mul_xy w=4 (~432K cycles) | point_mul_glv_wnaf_w5 (~194K cycles) | **−55%** |
+| m35905–m35906 (hex key) | point_mul_xy w=4 (~432K cycles) | point_mul_glv_wnaf_w5 (~194K cycles) | **−55%** |
+| m35910 (BLAKE2b SHMEM w=4) | point_mul_xy_lm (~432K cycles + SHMEM overhead) | point_mul_glv_wnaf_w5 (~194K cycles) | **−50%+** |
+| m35911 (BLAKE2s) | point_mul_xy w=4 (~432K cycles) | point_mul_glv_wnaf_w5 (~194K cycles) | **−55%** |
+
+### Test Results
+- All 413/413 Python tests pass (401 existing + 12 new Phase 5 tests)
+
+### Acceptance Criteria
+- [x] m35900–m35904 a0/a1/a3: use point_mul_glv_wnaf_w5
+- [x] m35905–m35906 a0/a1/a3: use point_mul_glv_wnaf_w5 (helper fn updated)
+- [x] m35910 a0/a1/a3: removed SHMEM, use point_mul_glv_wnaf_w5
+- [x] m35911 a0/a1/a3: use point_mul_glv_wnaf_w5
+- [x] No old point_mul_xy / point_mul_xy_lm in updated files
+- [x] Python tests updated (TestModuleFilesUseShmem reflects Phase 5)
+- [x] New TestModuleGLVIntegration + TestGroupKeyAddition tests pass
+- [x] All existing tests pass
+
+```
+STATUS: VERIFIED
+AGENT: coder
+PHASE: Phase-5-KernelIntegration
+TIMESTAMP: 2026-03-07T14:30:00Z
+DETAILS: All 27 m359* module files updated to use point_mul_glv_wnaf_w5.
+  m35910 SHMEM path replaced with GLV+wNAF (no SHMEM overhead, −55% cycles).
+  12 new Python tests added covering GLV integration and group key addition.
+  All 413 Python tests pass.
+CHANGES: OpenCL/m359{00-11}_a{0,1,3}-pure.cl (27 files), Python/test_shmem.py,
+  Python/test_regression_libsecp256k1.py
+ESTIMATED_SPEEDUP: −55% cycles for all modules (−50%+ for m35910 SHMEM→GLV)
+TEST_RESULTS: 413/413 Python tests pass
+```

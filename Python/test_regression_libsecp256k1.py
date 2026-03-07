@@ -39,6 +39,7 @@ Usage
   python3 -m unittest Python/test_regression_libsecp256k1.py -v
 """
 
+import os
 import unittest
 
 # ---------------------------------------------------------------------------
@@ -1501,6 +1502,167 @@ class TestInvModChain(unittest.TestCase):
         # Check inv_mod_chain on a non-trivial field element (y2g)
         self.assertEqual(inv_mod_chain(y2g), inv_mod(y2g))
         self.assertEqual(mul_mod(y2g, inv_mod_chain(y2g)), 1)
+
+
+class TestModuleGLVIntegration(unittest.TestCase):
+    """Phase 5: Verify GLV+wNAF w=5 correctness for all brainwallet hash pipelines.
+
+    Since OpenCL kernels cannot be run directly, this class:
+      1. Validates that point_mul_glv_wnaf_w5 agrees with point_mul for 50 random
+         scalars and important edge cases (k=1, k=2, k=N-1).
+      2. Validates that all Phase-5 target module files reference point_mul_glv_wnaf_w5
+         and no longer call the old point_mul_xy / point_mul_xy_lm functions.
+    """
+
+    _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # All module files that must be updated to GLV+wNAF w=5
+    _GLV_MODULES = [
+        "OpenCL/m35900_a0-pure.cl", "OpenCL/m35900_a1-pure.cl", "OpenCL/m35900_a3-pure.cl",
+        "OpenCL/m35901_a0-pure.cl", "OpenCL/m35901_a1-pure.cl", "OpenCL/m35901_a3-pure.cl",
+        "OpenCL/m35902_a0-pure.cl", "OpenCL/m35902_a1-pure.cl", "OpenCL/m35902_a3-pure.cl",
+        "OpenCL/m35903_a0-pure.cl", "OpenCL/m35903_a1-pure.cl", "OpenCL/m35903_a3-pure.cl",
+        "OpenCL/m35904_a0-pure.cl", "OpenCL/m35904_a1-pure.cl", "OpenCL/m35904_a3-pure.cl",
+        "OpenCL/m35905_a0-pure.cl", "OpenCL/m35905_a1-pure.cl", "OpenCL/m35905_a3-pure.cl",
+        "OpenCL/m35906_a0-pure.cl", "OpenCL/m35906_a1-pure.cl", "OpenCL/m35906_a3-pure.cl",
+        "OpenCL/m35910_a0-pure.cl", "OpenCL/m35910_a1-pure.cl", "OpenCL/m35910_a3-pure.cl",
+        "OpenCL/m35911_a0-pure.cl", "OpenCL/m35911_a1-pure.cl", "OpenCL/m35911_a3-pure.cl",
+    ]
+
+    def _read_module(self, rel_path):
+        path = os.path.join(self._REPO_ROOT, rel_path)
+        with open(path) as fh:
+            return fh.read()
+
+    # --- Arithmetic correctness ------------------------------------------
+
+    def test_glv_matches_standard_k1(self):
+        """GLV+wNAF: k=1 must return G."""
+        rx, ry = point_mul_glv_wnaf_w5(1)
+        self.assertEqual(rx, Gx)
+        self.assertEqual(ry, Gy)
+
+    def test_glv_matches_standard_k_n_minus_1(self):
+        """GLV+wNAF: k=N-1 must return -G (y = P - Gy)."""
+        rx, ry = point_mul_glv_wnaf_w5(N - 1)
+        ex, ey = point_mul(N - 1)
+        self.assertEqual(rx, ex)
+        self.assertEqual(ry, ey)
+
+    def test_glv_matches_standard_50_random(self):
+        """GLV+wNAF agrees with reference point_mul for 50 random scalars."""
+        import random
+        rng = random.Random(12345)
+        for i in range(50):
+            k = rng.randrange(1, N)
+            with self.subTest(i=i, k=hex(k)[-8:]):
+                gx, gy = point_mul_glv_wnaf_w5(k)
+                ex, ey = point_mul(k)
+                self.assertEqual(gx, ex)
+                self.assertEqual(gy, ey)
+
+    def test_glv_matches_standard_edge_k2(self):
+        """GLV+wNAF: k=2 must return 2G."""
+        rx, ry = point_mul_glv_wnaf_w5(2)
+        ex, ey = point_mul(2)
+        self.assertEqual(rx, ex)
+        self.assertEqual(ry, ey)
+
+    def test_glv_matches_standard_edge_half_n(self):
+        """GLV+wNAF agrees with reference point_mul at k = N//2."""
+        k = N // 2
+        rx, ry = point_mul_glv_wnaf_w5(k)
+        ex, ey = point_mul(k)
+        self.assertEqual(rx, ex)
+        self.assertEqual(ry, ey)
+
+    # --- Module file checks ----------------------------------------------
+
+    def test_all_glv_modules_contain_call(self):
+        """Every Phase-5 module file must call point_mul_glv_wnaf_w5."""
+        for rel in self._GLV_MODULES:
+            with self.subTest(module=rel):
+                content = self._read_module(rel)
+                self.assertIn("point_mul_glv_wnaf_w5", content)
+
+    def test_all_glv_modules_use_secp256k1_w5_t(self):
+        """Every Phase-5 module file must declare secp256k1_w5_t preG."""
+        for rel in self._GLV_MODULES:
+            with self.subTest(module=rel):
+                content = self._read_module(rel)
+                self.assertIn("secp256k1_w5_t", content)
+
+    def test_m35900_to_m35904_no_old_point_mul_xy(self):
+        """Brainwallet modules (m35900–m35904) must not call old point_mul_xy."""
+        old_modules = [m for m in self._GLV_MODULES
+                       if any(f"m{n}" in m for n in ["35900", "35901", "35902", "35903", "35904"])]
+        for rel in old_modules:
+            with self.subTest(module=rel):
+                content = self._read_module(rel)
+                # point_mul_xy_lm or point_mul_xy should not appear
+                self.assertNotIn("point_mul_xy", content)
+                self.assertNotIn("point_mul_xy_lm", content)
+
+    def test_m35910_no_old_shmem(self):
+        """m35910 must not use old SHMEM path after Phase 5."""
+        shmem_modules = [m for m in self._GLV_MODULES if "m35910" in m]
+        for rel in shmem_modules:
+            with self.subTest(module=rel):
+                content = self._read_module(rel)
+                self.assertNotIn("point_mul_xy_lm", content)
+                self.assertNotIn("set_precomputed_basepoint_g_lm", content)
+
+
+class TestGroupKeyAddition(unittest.TestCase):
+    """Phase 5 Task 5.7: Verify incremental point_add for sequential keys.
+
+    For consecutive private keys base, base+1, base+2, ...:
+      Q_i = i·G + base·G = Q_{i-1} + G
+
+    This validates the correctness of the Group Key Addition optimisation
+    that can be applied to m35905/m35906 in mask mode.
+    """
+
+    def test_incremental_point_add_100_keys(self):
+        """Q_{i} = Q_{i-1} + G for 100 consecutive scalars starting from a random base."""
+        import random
+        rng = random.Random(9999)
+        base = rng.randrange(1, N - 100)
+
+        # Compute Q_0 = base * G
+        Qx, Qy = point_mul(base)
+
+        for i in range(1, 101):
+            # Increment by G using point_add
+            Qx, Qy = point_add(Qx, Qy, Gx, Gy)
+            # Verify against full point_mul((base + i) % N)
+            ex, ey = point_mul((base + i) % N)
+            with self.subTest(i=i):
+                self.assertEqual(Qx, ex,  f"x mismatch at i={i}")
+                self.assertEqual(Qy, ey,  f"y mismatch at i={i}")
+
+    def test_incremental_from_k1(self):
+        """Incremental add from k=1: Q_1=G, Q_2=2G, Q_3=3G."""
+        Qx, Qy = Gx, Gy
+        for i in range(2, 11):
+            Qx, Qy = point_add(Qx, Qy, Gx, Gy)
+            ex, ey = point_mul(i)
+            with self.subTest(i=i):
+                self.assertEqual(Qx, ex)
+                self.assertEqual(Qy, ey)
+
+    def test_glv_matches_incremental_50_keys(self):
+        """GLV+wNAF and incremental point_add agree for 50 consecutive keys."""
+        import random
+        rng = random.Random(77777)
+        base = rng.randrange(1, N - 50)
+        Qx, Qy = point_mul(base)
+        for i in range(1, 51):
+            Qx, Qy = point_add(Qx, Qy, Gx, Gy)
+            gx, gy = point_mul_glv_wnaf_w5((base + i) % N)
+            with self.subTest(i=i):
+                self.assertEqual(Qx, gx)
+                self.assertEqual(Qy, gy)
 
 
 if __name__ == "__main__":

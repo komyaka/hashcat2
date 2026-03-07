@@ -79,13 +79,13 @@ DECLSPEC void reverse_prv_key (PRIVATE_AS u32 *prv_rev, PRIVATE_AS const u32 *pr
 // Derive Bitcoin hash160 from private key: compressed pubkey → SHA256 → RIPEMD160.
 // P2SH mode wraps hash160 in OP_0 PUSH20, then hashes again.
 DECLSPEC void prv_to_hash160 (PRIVATE_AS u32 *rctx_h, PRIVATE_AS const u32 *prv_key,
-                               SECP256K1_TMPS_TYPE secp256k1_t *preG,
+                               SECP256K1_TMPS_TYPE secp256k1_w5_t *preG,
                                const u32 addr_type)
 {
   u32 x[8];
   u32 y[8];
 
-  point_mul_xy (x, y, prv_key, preG);
+  point_mul_glv_wnaf_w5 (x, y, prv_key, preG);
 
   // Compressed public key (33 bytes): prefix || x
   u32 pub_key[16] = { 0 };
@@ -154,9 +154,9 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_RULES ())
 
   if (gid >= GID_CNT) return;
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -217,9 +217,9 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_RULES ())
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
