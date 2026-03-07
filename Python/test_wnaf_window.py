@@ -284,10 +284,11 @@ class TestWNafOperationCount(unittest.TestCase):
             self.assertEqual(ops['doubles'], highest)
 
     def test_adds_less_than_doubles(self):
-        """Point additions should always be fewer than doublings."""
+        """Point additions should be fewer than doublings for typical 256-bit scalars."""
         rng = random.Random(13)
         for _ in range(30):
-            k = rng.getrandbits(256) or 1
+            # Use random 256-bit scalars (large enough to have many doublings)
+            k = rng.getrandbits(255) + (1 << 255)  # ensure top bit set → ~256 doublings
             for w in [4, 5]:
                 ops = count_operations(k, w)
                 self.assertLess(ops['adds'], ops['doubles'],

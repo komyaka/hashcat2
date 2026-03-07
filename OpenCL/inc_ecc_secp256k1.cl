@@ -3469,6 +3469,8 @@ DECLSPEC void set_precomputed_basepoint_g_w5 (PRIVATE_AS secp256k1_w5_t *r)
  * Window size is controlled by WNAF_WINDOW_SIZE macro (default 4).
  * Encoding: 0 = zero digit; positive odd d → val=d; negative odd d → val=(2^w+1)-d.
  * @param naf out: byte-packed NAF, array of SECP256K1_NAF_BYTE_SIZE u32 words.
+ *                 MUST be zero-initialized by the caller before this call;
+ *                 the function ORs digits into the array.
  * @param k in: 256-bit scalar, array of 8 u32 words (little-endian limbs, k[0]=LSW).
  * @return loop_start index (position of highest nonzero digit).
  */
@@ -3494,11 +3496,10 @@ DECLSPEC int convert_to_wnaf_byte (PRIVATE_AS u32 *naf, PRIVATE_AS const u32 *k)
   n[7] = k[1];
   n[8] = k[0];
 
+  // Iterate over all 257 bit positions (0..256 inclusive).
+  // The NAF can be at most bit_length(k)+1 digits long (<=257 for a 256-bit k).
+  // SECP256K1_NAF_BYTE_SIZE = 65 u32 words * 4 bytes/word = 260 byte slots >= 257.
   for (int i = 0; i <= 256; i++)
-  {
-    if (n[8] & 1)
-    {
-      int diff = (int)(n[8] & mask); // n mod 2^w
 
       u32 val = (u32)diff;
 

@@ -244,7 +244,7 @@ def print_benchmark_table(results: dict) -> None:
     speedup   = results['speedup_vs_w4']
     cost_w4   = w_results.get(4)
 
-    print(f"{'w':>4}  {'Cost':>10}  {'Speedup vs w=4':>16}  {'Note':}")
+    print(f"{'w':>4}  {'Cost':>10}  {'Speedup vs w=4':>16}  {'Note'}")
     print("-" * 50)
 
     for w in sorted(w_results):

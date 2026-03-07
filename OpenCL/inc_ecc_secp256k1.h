@@ -275,6 +275,9 @@
 //   w=4: 4 odd multiples,  avg ~51 adds + 256 doubles
 //   w=5: 8 odd multiples,  avg ~43 adds + 256 doubles
 //   w=6: 16 odd multiples, avg ~37 adds + 256 doubles
+// Default is 4 for backward compatibility with existing w=4 code paths.
+// GPU autotuning (Python/wnaf_autotune.py) recommends w=5 or w=6 for
+// typical GPU cost ratios; use -D WNAF_WINDOW_SIZE=5 to enable w=5 paths.
 #ifndef WNAF_WINDOW_SIZE
 #define WNAF_WINDOW_SIZE   4
 #endif
