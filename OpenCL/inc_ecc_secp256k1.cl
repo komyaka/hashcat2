@@ -1567,25 +1567,23 @@ DECLSPEC void point_double (PRIVATE_AS u32 *x, PRIVATE_AS u32 *y, PRIVATE_AS u32
 
   // a * z^4 = 0 * 1^4 = 0
 
-  // don't discard the least significant bit it's important too!
+  // Branch-free division by 2 mod p:
+  // If t4 is odd, add p (making it even) then shift right 1.
+  // mask = 0xffffffff if odd, 0x00000000 if even — no conditional branch.
 
-  u32 c = 0;
+  u32 t4_odd_mask = (t4[0] & 1u) ? 0xffffffffu : 0u; // 0xffffffff if odd, 0 if even
 
-  if (t4[0] & 1)
-  {
-    u32 t[8];
+  u32 t[8];
+  t[0] = SECP256K1_P0 & t4_odd_mask;
+  t[1] = SECP256K1_P1 & t4_odd_mask;
+  t[2] = SECP256K1_P2 & t4_odd_mask;
+  t[3] = SECP256K1_P3 & t4_odd_mask;
+  t[4] = SECP256K1_P4 & t4_odd_mask;
+  t[5] = SECP256K1_P5 & t4_odd_mask;
+  t[6] = SECP256K1_P6 & t4_odd_mask;
+  t[7] = SECP256K1_P7 & t4_odd_mask;
 
-    t[0] = SECP256K1_P0;
-    t[1] = SECP256K1_P1;
-    t[2] = SECP256K1_P2;
-    t[3] = SECP256K1_P3;
-    t[4] = SECP256K1_P4;
-    t[5] = SECP256K1_P5;
-    t[6] = SECP256K1_P6;
-    t[7] = SECP256K1_P7;
-
-    c = add (t4, t4, t); // t4 + SECP256K1_P
-  }
+  u32 c = add (t4, t4, t); // adds p if odd, adds 0 if even
 
   // right shift (t4 / 2):
 
@@ -1793,19 +1791,15 @@ DECLSPEC void point_add (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 
   t6[1] = t4[1] << 1 | t4[0] >> 31;
   t6[0] = t4[0] << 1;
 
-  // don't discard the most significant bit, it's important too!
+  // Branch-free "multiply by 2 mod p" for t6 = 2*t4 mod p:
+  // If the MSB of t4 is set, we need to add omega = (0x000003d1, 1) after left-shift.
+  // mask = 0xffffffff if MSB set, 0 otherwise — no conditional branch.
 
-  if (t4[7] & 0x80000000)
-  {
-    // use most significant bit and perform mod P, since we have: t4 * 2 % P
+  u32 t4_msb_mask = (t4[7] >> 31) ? 0xffffffffu : 0u; // 0xffffffff if MSB set, 0 otherwise
 
-    u32 a[8] = { 0 };
+  u32 omega[8] = { 0x000003d1u & t4_msb_mask, 1u & t4_msb_mask, 0u, 0u, 0u, 0u, 0u, 0u };
 
-    a[1] = 1;
-    a[0] = 0x000003d1; // omega (see: mul_mod ())
-
-    add (t6, t6, a);
-  }
+  add (t6, t6, omega);
 
   sqr_mod (t5, t7); // t5 = t7*t7
 
@@ -4041,4 +4035,625 @@ DECLSPEC void point_mul_wnaf_w5_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIV
 
   mul_mod (z1, z2, z1);
   mul_mod (y1, y1, z1);
+}
+
+/*
+ * Fill the w=6 precomputed basepoint table (384 u32 words) from compile-time constants.
+ * Table layout: 16 odd multiples (1G, 3G, ..., 31G), each stored as (x, y, -y), 8 u32 each.
+ * Total: 16 x 3 x 8 = 384 u32 = 1536 bytes.
+ */
+DECLSPEC void set_precomputed_basepoint_g_w6 (PRIVATE_AS secp256k1_w6_t *r)
+{
+  r->xy[  0] = SECP256K1_G_W6_PRE_000; r->xy[  1] = SECP256K1_G_W6_PRE_001;
+  r->xy[  2] = SECP256K1_G_W6_PRE_002; r->xy[  3] = SECP256K1_G_W6_PRE_003;
+  r->xy[  4] = SECP256K1_G_W6_PRE_004; r->xy[  5] = SECP256K1_G_W6_PRE_005;
+  r->xy[  6] = SECP256K1_G_W6_PRE_006; r->xy[  7] = SECP256K1_G_W6_PRE_007;
+  r->xy[  8] = SECP256K1_G_W6_PRE_008; r->xy[  9] = SECP256K1_G_W6_PRE_009;
+  r->xy[ 10] = SECP256K1_G_W6_PRE_010; r->xy[ 11] = SECP256K1_G_W6_PRE_011;
+  r->xy[ 12] = SECP256K1_G_W6_PRE_012; r->xy[ 13] = SECP256K1_G_W6_PRE_013;
+  r->xy[ 14] = SECP256K1_G_W6_PRE_014; r->xy[ 15] = SECP256K1_G_W6_PRE_015;
+  r->xy[ 16] = SECP256K1_G_W6_PRE_016; r->xy[ 17] = SECP256K1_G_W6_PRE_017;
+  r->xy[ 18] = SECP256K1_G_W6_PRE_018; r->xy[ 19] = SECP256K1_G_W6_PRE_019;
+  r->xy[ 20] = SECP256K1_G_W6_PRE_020; r->xy[ 21] = SECP256K1_G_W6_PRE_021;
+  r->xy[ 22] = SECP256K1_G_W6_PRE_022; r->xy[ 23] = SECP256K1_G_W6_PRE_023;
+  r->xy[ 24] = SECP256K1_G_W6_PRE_024; r->xy[ 25] = SECP256K1_G_W6_PRE_025;
+  r->xy[ 26] = SECP256K1_G_W6_PRE_026; r->xy[ 27] = SECP256K1_G_W6_PRE_027;
+  r->xy[ 28] = SECP256K1_G_W6_PRE_028; r->xy[ 29] = SECP256K1_G_W6_PRE_029;
+  r->xy[ 30] = SECP256K1_G_W6_PRE_030; r->xy[ 31] = SECP256K1_G_W6_PRE_031;
+  r->xy[ 32] = SECP256K1_G_W6_PRE_032; r->xy[ 33] = SECP256K1_G_W6_PRE_033;
+  r->xy[ 34] = SECP256K1_G_W6_PRE_034; r->xy[ 35] = SECP256K1_G_W6_PRE_035;
+  r->xy[ 36] = SECP256K1_G_W6_PRE_036; r->xy[ 37] = SECP256K1_G_W6_PRE_037;
+  r->xy[ 38] = SECP256K1_G_W6_PRE_038; r->xy[ 39] = SECP256K1_G_W6_PRE_039;
+  r->xy[ 40] = SECP256K1_G_W6_PRE_040; r->xy[ 41] = SECP256K1_G_W6_PRE_041;
+  r->xy[ 42] = SECP256K1_G_W6_PRE_042; r->xy[ 43] = SECP256K1_G_W6_PRE_043;
+  r->xy[ 44] = SECP256K1_G_W6_PRE_044; r->xy[ 45] = SECP256K1_G_W6_PRE_045;
+  r->xy[ 46] = SECP256K1_G_W6_PRE_046; r->xy[ 47] = SECP256K1_G_W6_PRE_047;
+  r->xy[ 48] = SECP256K1_G_W6_PRE_048; r->xy[ 49] = SECP256K1_G_W6_PRE_049;
+  r->xy[ 50] = SECP256K1_G_W6_PRE_050; r->xy[ 51] = SECP256K1_G_W6_PRE_051;
+  r->xy[ 52] = SECP256K1_G_W6_PRE_052; r->xy[ 53] = SECP256K1_G_W6_PRE_053;
+  r->xy[ 54] = SECP256K1_G_W6_PRE_054; r->xy[ 55] = SECP256K1_G_W6_PRE_055;
+  r->xy[ 56] = SECP256K1_G_W6_PRE_056; r->xy[ 57] = SECP256K1_G_W6_PRE_057;
+  r->xy[ 58] = SECP256K1_G_W6_PRE_058; r->xy[ 59] = SECP256K1_G_W6_PRE_059;
+  r->xy[ 60] = SECP256K1_G_W6_PRE_060; r->xy[ 61] = SECP256K1_G_W6_PRE_061;
+  r->xy[ 62] = SECP256K1_G_W6_PRE_062; r->xy[ 63] = SECP256K1_G_W6_PRE_063;
+  r->xy[ 64] = SECP256K1_G_W6_PRE_064; r->xy[ 65] = SECP256K1_G_W6_PRE_065;
+  r->xy[ 66] = SECP256K1_G_W6_PRE_066; r->xy[ 67] = SECP256K1_G_W6_PRE_067;
+  r->xy[ 68] = SECP256K1_G_W6_PRE_068; r->xy[ 69] = SECP256K1_G_W6_PRE_069;
+  r->xy[ 70] = SECP256K1_G_W6_PRE_070; r->xy[ 71] = SECP256K1_G_W6_PRE_071;
+  r->xy[ 72] = SECP256K1_G_W6_PRE_072; r->xy[ 73] = SECP256K1_G_W6_PRE_073;
+  r->xy[ 74] = SECP256K1_G_W6_PRE_074; r->xy[ 75] = SECP256K1_G_W6_PRE_075;
+  r->xy[ 76] = SECP256K1_G_W6_PRE_076; r->xy[ 77] = SECP256K1_G_W6_PRE_077;
+  r->xy[ 78] = SECP256K1_G_W6_PRE_078; r->xy[ 79] = SECP256K1_G_W6_PRE_079;
+  r->xy[ 80] = SECP256K1_G_W6_PRE_080; r->xy[ 81] = SECP256K1_G_W6_PRE_081;
+  r->xy[ 82] = SECP256K1_G_W6_PRE_082; r->xy[ 83] = SECP256K1_G_W6_PRE_083;
+  r->xy[ 84] = SECP256K1_G_W6_PRE_084; r->xy[ 85] = SECP256K1_G_W6_PRE_085;
+  r->xy[ 86] = SECP256K1_G_W6_PRE_086; r->xy[ 87] = SECP256K1_G_W6_PRE_087;
+  r->xy[ 88] = SECP256K1_G_W6_PRE_088; r->xy[ 89] = SECP256K1_G_W6_PRE_089;
+  r->xy[ 90] = SECP256K1_G_W6_PRE_090; r->xy[ 91] = SECP256K1_G_W6_PRE_091;
+  r->xy[ 92] = SECP256K1_G_W6_PRE_092; r->xy[ 93] = SECP256K1_G_W6_PRE_093;
+  r->xy[ 94] = SECP256K1_G_W6_PRE_094; r->xy[ 95] = SECP256K1_G_W6_PRE_095;
+  r->xy[ 96] = SECP256K1_G_W6_PRE_096; r->xy[ 97] = SECP256K1_G_W6_PRE_097;
+  r->xy[ 98] = SECP256K1_G_W6_PRE_098; r->xy[ 99] = SECP256K1_G_W6_PRE_099;
+  r->xy[100] = SECP256K1_G_W6_PRE_100; r->xy[101] = SECP256K1_G_W6_PRE_101;
+  r->xy[102] = SECP256K1_G_W6_PRE_102; r->xy[103] = SECP256K1_G_W6_PRE_103;
+  r->xy[104] = SECP256K1_G_W6_PRE_104; r->xy[105] = SECP256K1_G_W6_PRE_105;
+  r->xy[106] = SECP256K1_G_W6_PRE_106; r->xy[107] = SECP256K1_G_W6_PRE_107;
+  r->xy[108] = SECP256K1_G_W6_PRE_108; r->xy[109] = SECP256K1_G_W6_PRE_109;
+  r->xy[110] = SECP256K1_G_W6_PRE_110; r->xy[111] = SECP256K1_G_W6_PRE_111;
+  r->xy[112] = SECP256K1_G_W6_PRE_112; r->xy[113] = SECP256K1_G_W6_PRE_113;
+  r->xy[114] = SECP256K1_G_W6_PRE_114; r->xy[115] = SECP256K1_G_W6_PRE_115;
+  r->xy[116] = SECP256K1_G_W6_PRE_116; r->xy[117] = SECP256K1_G_W6_PRE_117;
+  r->xy[118] = SECP256K1_G_W6_PRE_118; r->xy[119] = SECP256K1_G_W6_PRE_119;
+  r->xy[120] = SECP256K1_G_W6_PRE_120; r->xy[121] = SECP256K1_G_W6_PRE_121;
+  r->xy[122] = SECP256K1_G_W6_PRE_122; r->xy[123] = SECP256K1_G_W6_PRE_123;
+  r->xy[124] = SECP256K1_G_W6_PRE_124; r->xy[125] = SECP256K1_G_W6_PRE_125;
+  r->xy[126] = SECP256K1_G_W6_PRE_126; r->xy[127] = SECP256K1_G_W6_PRE_127;
+  r->xy[128] = SECP256K1_G_W6_PRE_128; r->xy[129] = SECP256K1_G_W6_PRE_129;
+  r->xy[130] = SECP256K1_G_W6_PRE_130; r->xy[131] = SECP256K1_G_W6_PRE_131;
+  r->xy[132] = SECP256K1_G_W6_PRE_132; r->xy[133] = SECP256K1_G_W6_PRE_133;
+  r->xy[134] = SECP256K1_G_W6_PRE_134; r->xy[135] = SECP256K1_G_W6_PRE_135;
+  r->xy[136] = SECP256K1_G_W6_PRE_136; r->xy[137] = SECP256K1_G_W6_PRE_137;
+  r->xy[138] = SECP256K1_G_W6_PRE_138; r->xy[139] = SECP256K1_G_W6_PRE_139;
+  r->xy[140] = SECP256K1_G_W6_PRE_140; r->xy[141] = SECP256K1_G_W6_PRE_141;
+  r->xy[142] = SECP256K1_G_W6_PRE_142; r->xy[143] = SECP256K1_G_W6_PRE_143;
+  r->xy[144] = SECP256K1_G_W6_PRE_144; r->xy[145] = SECP256K1_G_W6_PRE_145;
+  r->xy[146] = SECP256K1_G_W6_PRE_146; r->xy[147] = SECP256K1_G_W6_PRE_147;
+  r->xy[148] = SECP256K1_G_W6_PRE_148; r->xy[149] = SECP256K1_G_W6_PRE_149;
+  r->xy[150] = SECP256K1_G_W6_PRE_150; r->xy[151] = SECP256K1_G_W6_PRE_151;
+  r->xy[152] = SECP256K1_G_W6_PRE_152; r->xy[153] = SECP256K1_G_W6_PRE_153;
+  r->xy[154] = SECP256K1_G_W6_PRE_154; r->xy[155] = SECP256K1_G_W6_PRE_155;
+  r->xy[156] = SECP256K1_G_W6_PRE_156; r->xy[157] = SECP256K1_G_W6_PRE_157;
+  r->xy[158] = SECP256K1_G_W6_PRE_158; r->xy[159] = SECP256K1_G_W6_PRE_159;
+  r->xy[160] = SECP256K1_G_W6_PRE_160; r->xy[161] = SECP256K1_G_W6_PRE_161;
+  r->xy[162] = SECP256K1_G_W6_PRE_162; r->xy[163] = SECP256K1_G_W6_PRE_163;
+  r->xy[164] = SECP256K1_G_W6_PRE_164; r->xy[165] = SECP256K1_G_W6_PRE_165;
+  r->xy[166] = SECP256K1_G_W6_PRE_166; r->xy[167] = SECP256K1_G_W6_PRE_167;
+  r->xy[168] = SECP256K1_G_W6_PRE_168; r->xy[169] = SECP256K1_G_W6_PRE_169;
+  r->xy[170] = SECP256K1_G_W6_PRE_170; r->xy[171] = SECP256K1_G_W6_PRE_171;
+  r->xy[172] = SECP256K1_G_W6_PRE_172; r->xy[173] = SECP256K1_G_W6_PRE_173;
+  r->xy[174] = SECP256K1_G_W6_PRE_174; r->xy[175] = SECP256K1_G_W6_PRE_175;
+  r->xy[176] = SECP256K1_G_W6_PRE_176; r->xy[177] = SECP256K1_G_W6_PRE_177;
+  r->xy[178] = SECP256K1_G_W6_PRE_178; r->xy[179] = SECP256K1_G_W6_PRE_179;
+  r->xy[180] = SECP256K1_G_W6_PRE_180; r->xy[181] = SECP256K1_G_W6_PRE_181;
+  r->xy[182] = SECP256K1_G_W6_PRE_182; r->xy[183] = SECP256K1_G_W6_PRE_183;
+  r->xy[184] = SECP256K1_G_W6_PRE_184; r->xy[185] = SECP256K1_G_W6_PRE_185;
+  r->xy[186] = SECP256K1_G_W6_PRE_186; r->xy[187] = SECP256K1_G_W6_PRE_187;
+  r->xy[188] = SECP256K1_G_W6_PRE_188; r->xy[189] = SECP256K1_G_W6_PRE_189;
+  r->xy[190] = SECP256K1_G_W6_PRE_190; r->xy[191] = SECP256K1_G_W6_PRE_191;
+  r->xy[192] = SECP256K1_G_W6_PRE_192; r->xy[193] = SECP256K1_G_W6_PRE_193;
+  r->xy[194] = SECP256K1_G_W6_PRE_194; r->xy[195] = SECP256K1_G_W6_PRE_195;
+  r->xy[196] = SECP256K1_G_W6_PRE_196; r->xy[197] = SECP256K1_G_W6_PRE_197;
+  r->xy[198] = SECP256K1_G_W6_PRE_198; r->xy[199] = SECP256K1_G_W6_PRE_199;
+  r->xy[200] = SECP256K1_G_W6_PRE_200; r->xy[201] = SECP256K1_G_W6_PRE_201;
+  r->xy[202] = SECP256K1_G_W6_PRE_202; r->xy[203] = SECP256K1_G_W6_PRE_203;
+  r->xy[204] = SECP256K1_G_W6_PRE_204; r->xy[205] = SECP256K1_G_W6_PRE_205;
+  r->xy[206] = SECP256K1_G_W6_PRE_206; r->xy[207] = SECP256K1_G_W6_PRE_207;
+  r->xy[208] = SECP256K1_G_W6_PRE_208; r->xy[209] = SECP256K1_G_W6_PRE_209;
+  r->xy[210] = SECP256K1_G_W6_PRE_210; r->xy[211] = SECP256K1_G_W6_PRE_211;
+  r->xy[212] = SECP256K1_G_W6_PRE_212; r->xy[213] = SECP256K1_G_W6_PRE_213;
+  r->xy[214] = SECP256K1_G_W6_PRE_214; r->xy[215] = SECP256K1_G_W6_PRE_215;
+  r->xy[216] = SECP256K1_G_W6_PRE_216; r->xy[217] = SECP256K1_G_W6_PRE_217;
+  r->xy[218] = SECP256K1_G_W6_PRE_218; r->xy[219] = SECP256K1_G_W6_PRE_219;
+  r->xy[220] = SECP256K1_G_W6_PRE_220; r->xy[221] = SECP256K1_G_W6_PRE_221;
+  r->xy[222] = SECP256K1_G_W6_PRE_222; r->xy[223] = SECP256K1_G_W6_PRE_223;
+  r->xy[224] = SECP256K1_G_W6_PRE_224; r->xy[225] = SECP256K1_G_W6_PRE_225;
+  r->xy[226] = SECP256K1_G_W6_PRE_226; r->xy[227] = SECP256K1_G_W6_PRE_227;
+  r->xy[228] = SECP256K1_G_W6_PRE_228; r->xy[229] = SECP256K1_G_W6_PRE_229;
+  r->xy[230] = SECP256K1_G_W6_PRE_230; r->xy[231] = SECP256K1_G_W6_PRE_231;
+  r->xy[232] = SECP256K1_G_W6_PRE_232; r->xy[233] = SECP256K1_G_W6_PRE_233;
+  r->xy[234] = SECP256K1_G_W6_PRE_234; r->xy[235] = SECP256K1_G_W6_PRE_235;
+  r->xy[236] = SECP256K1_G_W6_PRE_236; r->xy[237] = SECP256K1_G_W6_PRE_237;
+  r->xy[238] = SECP256K1_G_W6_PRE_238; r->xy[239] = SECP256K1_G_W6_PRE_239;
+  r->xy[240] = SECP256K1_G_W6_PRE_240; r->xy[241] = SECP256K1_G_W6_PRE_241;
+  r->xy[242] = SECP256K1_G_W6_PRE_242; r->xy[243] = SECP256K1_G_W6_PRE_243;
+  r->xy[244] = SECP256K1_G_W6_PRE_244; r->xy[245] = SECP256K1_G_W6_PRE_245;
+  r->xy[246] = SECP256K1_G_W6_PRE_246; r->xy[247] = SECP256K1_G_W6_PRE_247;
+  r->xy[248] = SECP256K1_G_W6_PRE_248; r->xy[249] = SECP256K1_G_W6_PRE_249;
+  r->xy[250] = SECP256K1_G_W6_PRE_250; r->xy[251] = SECP256K1_G_W6_PRE_251;
+  r->xy[252] = SECP256K1_G_W6_PRE_252; r->xy[253] = SECP256K1_G_W6_PRE_253;
+  r->xy[254] = SECP256K1_G_W6_PRE_254; r->xy[255] = SECP256K1_G_W6_PRE_255;
+  r->xy[256] = SECP256K1_G_W6_PRE_256; r->xy[257] = SECP256K1_G_W6_PRE_257;
+  r->xy[258] = SECP256K1_G_W6_PRE_258; r->xy[259] = SECP256K1_G_W6_PRE_259;
+  r->xy[260] = SECP256K1_G_W6_PRE_260; r->xy[261] = SECP256K1_G_W6_PRE_261;
+  r->xy[262] = SECP256K1_G_W6_PRE_262; r->xy[263] = SECP256K1_G_W6_PRE_263;
+  r->xy[264] = SECP256K1_G_W6_PRE_264; r->xy[265] = SECP256K1_G_W6_PRE_265;
+  r->xy[266] = SECP256K1_G_W6_PRE_266; r->xy[267] = SECP256K1_G_W6_PRE_267;
+  r->xy[268] = SECP256K1_G_W6_PRE_268; r->xy[269] = SECP256K1_G_W6_PRE_269;
+  r->xy[270] = SECP256K1_G_W6_PRE_270; r->xy[271] = SECP256K1_G_W6_PRE_271;
+  r->xy[272] = SECP256K1_G_W6_PRE_272; r->xy[273] = SECP256K1_G_W6_PRE_273;
+  r->xy[274] = SECP256K1_G_W6_PRE_274; r->xy[275] = SECP256K1_G_W6_PRE_275;
+  r->xy[276] = SECP256K1_G_W6_PRE_276; r->xy[277] = SECP256K1_G_W6_PRE_277;
+  r->xy[278] = SECP256K1_G_W6_PRE_278; r->xy[279] = SECP256K1_G_W6_PRE_279;
+  r->xy[280] = SECP256K1_G_W6_PRE_280; r->xy[281] = SECP256K1_G_W6_PRE_281;
+  r->xy[282] = SECP256K1_G_W6_PRE_282; r->xy[283] = SECP256K1_G_W6_PRE_283;
+  r->xy[284] = SECP256K1_G_W6_PRE_284; r->xy[285] = SECP256K1_G_W6_PRE_285;
+  r->xy[286] = SECP256K1_G_W6_PRE_286; r->xy[287] = SECP256K1_G_W6_PRE_287;
+  r->xy[288] = SECP256K1_G_W6_PRE_288; r->xy[289] = SECP256K1_G_W6_PRE_289;
+  r->xy[290] = SECP256K1_G_W6_PRE_290; r->xy[291] = SECP256K1_G_W6_PRE_291;
+  r->xy[292] = SECP256K1_G_W6_PRE_292; r->xy[293] = SECP256K1_G_W6_PRE_293;
+  r->xy[294] = SECP256K1_G_W6_PRE_294; r->xy[295] = SECP256K1_G_W6_PRE_295;
+  r->xy[296] = SECP256K1_G_W6_PRE_296; r->xy[297] = SECP256K1_G_W6_PRE_297;
+  r->xy[298] = SECP256K1_G_W6_PRE_298; r->xy[299] = SECP256K1_G_W6_PRE_299;
+  r->xy[300] = SECP256K1_G_W6_PRE_300; r->xy[301] = SECP256K1_G_W6_PRE_301;
+  r->xy[302] = SECP256K1_G_W6_PRE_302; r->xy[303] = SECP256K1_G_W6_PRE_303;
+  r->xy[304] = SECP256K1_G_W6_PRE_304; r->xy[305] = SECP256K1_G_W6_PRE_305;
+  r->xy[306] = SECP256K1_G_W6_PRE_306; r->xy[307] = SECP256K1_G_W6_PRE_307;
+  r->xy[308] = SECP256K1_G_W6_PRE_308; r->xy[309] = SECP256K1_G_W6_PRE_309;
+  r->xy[310] = SECP256K1_G_W6_PRE_310; r->xy[311] = SECP256K1_G_W6_PRE_311;
+  r->xy[312] = SECP256K1_G_W6_PRE_312; r->xy[313] = SECP256K1_G_W6_PRE_313;
+  r->xy[314] = SECP256K1_G_W6_PRE_314; r->xy[315] = SECP256K1_G_W6_PRE_315;
+  r->xy[316] = SECP256K1_G_W6_PRE_316; r->xy[317] = SECP256K1_G_W6_PRE_317;
+  r->xy[318] = SECP256K1_G_W6_PRE_318; r->xy[319] = SECP256K1_G_W6_PRE_319;
+  r->xy[320] = SECP256K1_G_W6_PRE_320; r->xy[321] = SECP256K1_G_W6_PRE_321;
+  r->xy[322] = SECP256K1_G_W6_PRE_322; r->xy[323] = SECP256K1_G_W6_PRE_323;
+  r->xy[324] = SECP256K1_G_W6_PRE_324; r->xy[325] = SECP256K1_G_W6_PRE_325;
+  r->xy[326] = SECP256K1_G_W6_PRE_326; r->xy[327] = SECP256K1_G_W6_PRE_327;
+  r->xy[328] = SECP256K1_G_W6_PRE_328; r->xy[329] = SECP256K1_G_W6_PRE_329;
+  r->xy[330] = SECP256K1_G_W6_PRE_330; r->xy[331] = SECP256K1_G_W6_PRE_331;
+  r->xy[332] = SECP256K1_G_W6_PRE_332; r->xy[333] = SECP256K1_G_W6_PRE_333;
+  r->xy[334] = SECP256K1_G_W6_PRE_334; r->xy[335] = SECP256K1_G_W6_PRE_335;
+  r->xy[336] = SECP256K1_G_W6_PRE_336; r->xy[337] = SECP256K1_G_W6_PRE_337;
+  r->xy[338] = SECP256K1_G_W6_PRE_338; r->xy[339] = SECP256K1_G_W6_PRE_339;
+  r->xy[340] = SECP256K1_G_W6_PRE_340; r->xy[341] = SECP256K1_G_W6_PRE_341;
+  r->xy[342] = SECP256K1_G_W6_PRE_342; r->xy[343] = SECP256K1_G_W6_PRE_343;
+  r->xy[344] = SECP256K1_G_W6_PRE_344; r->xy[345] = SECP256K1_G_W6_PRE_345;
+  r->xy[346] = SECP256K1_G_W6_PRE_346; r->xy[347] = SECP256K1_G_W6_PRE_347;
+  r->xy[348] = SECP256K1_G_W6_PRE_348; r->xy[349] = SECP256K1_G_W6_PRE_349;
+  r->xy[350] = SECP256K1_G_W6_PRE_350; r->xy[351] = SECP256K1_G_W6_PRE_351;
+  r->xy[352] = SECP256K1_G_W6_PRE_352; r->xy[353] = SECP256K1_G_W6_PRE_353;
+  r->xy[354] = SECP256K1_G_W6_PRE_354; r->xy[355] = SECP256K1_G_W6_PRE_355;
+  r->xy[356] = SECP256K1_G_W6_PRE_356; r->xy[357] = SECP256K1_G_W6_PRE_357;
+  r->xy[358] = SECP256K1_G_W6_PRE_358; r->xy[359] = SECP256K1_G_W6_PRE_359;
+  r->xy[360] = SECP256K1_G_W6_PRE_360; r->xy[361] = SECP256K1_G_W6_PRE_361;
+  r->xy[362] = SECP256K1_G_W6_PRE_362; r->xy[363] = SECP256K1_G_W6_PRE_363;
+  r->xy[364] = SECP256K1_G_W6_PRE_364; r->xy[365] = SECP256K1_G_W6_PRE_365;
+  r->xy[366] = SECP256K1_G_W6_PRE_366; r->xy[367] = SECP256K1_G_W6_PRE_367;
+  r->xy[368] = SECP256K1_G_W6_PRE_368; r->xy[369] = SECP256K1_G_W6_PRE_369;
+  r->xy[370] = SECP256K1_G_W6_PRE_370; r->xy[371] = SECP256K1_G_W6_PRE_371;
+  r->xy[372] = SECP256K1_G_W6_PRE_372; r->xy[373] = SECP256K1_G_W6_PRE_373;
+  r->xy[374] = SECP256K1_G_W6_PRE_374; r->xy[375] = SECP256K1_G_W6_PRE_375;
+  r->xy[376] = SECP256K1_G_W6_PRE_376; r->xy[377] = SECP256K1_G_W6_PRE_377;
+  r->xy[378] = SECP256K1_G_W6_PRE_378; r->xy[379] = SECP256K1_G_W6_PRE_379;
+  r->xy[380] = SECP256K1_G_W6_PRE_380; r->xy[381] = SECP256K1_G_W6_PRE_381;
+  r->xy[382] = SECP256K1_G_W6_PRE_382; r->xy[383] = SECP256K1_G_W6_PRE_383;
+}
+
+/*
+ * Scalar multiplication using w=6 wNAF with the PRIVATE_AS precomputed table.
+ * Table: 16 odd multiples (1G, 3G, ..., 31G), each (x, y, -y) x 8 u32.
+ * Uses byte-packed NAF from convert_to_wnaf_byte().
+ */
+DECLSPEC void point_mul_wnaf_w6 (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_w6_t *tmps)
+{
+  u32 naf[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+
+  int loop_start = convert_to_wnaf_byte (naf, k);
+
+  const u32 multiplier0 = (naf[loop_start >> 2] >> ((loop_start & 3) << 3)) & 0xff;
+
+  const u32 odd0  = multiplier0 & 1;
+  const u32 xp0   = ((multiplier0 - 1 + odd0) >> 1) * 24;
+  const u32 yp0   = odd0 ? (xp0 + 8) : (xp0 + 16);
+
+  x1[0] = tmps->xy[xp0 + 0];
+  x1[1] = tmps->xy[xp0 + 1];
+  x1[2] = tmps->xy[xp0 + 2];
+  x1[3] = tmps->xy[xp0 + 3];
+  x1[4] = tmps->xy[xp0 + 4];
+  x1[5] = tmps->xy[xp0 + 5];
+  x1[6] = tmps->xy[xp0 + 6];
+  x1[7] = tmps->xy[xp0 + 7];
+
+  y1[0] = tmps->xy[yp0 + 0];
+  y1[1] = tmps->xy[yp0 + 1];
+  y1[2] = tmps->xy[yp0 + 2];
+  y1[3] = tmps->xy[yp0 + 3];
+  y1[4] = tmps->xy[yp0 + 4];
+  y1[5] = tmps->xy[yp0 + 5];
+  y1[6] = tmps->xy[yp0 + 6];
+  y1[7] = tmps->xy[yp0 + 7];
+
+  u32 z1[8] = { 0 };
+  z1[0] = 1;
+
+  for (int pos = loop_start - 1; pos >= 0; pos--)
+  {
+    point_double (x1, y1, z1);
+
+    const u32 multiplier = (naf[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+
+    if (multiplier)
+    {
+      const u32 odd  = multiplier & 1;
+      const u32 x_pos = ((multiplier - 1 + odd) >> 1) * 24;
+      const u32 y_pos = odd ? (x_pos + 8) : (x_pos + 16);
+
+      u32 x2[8];
+      x2[0] = tmps->xy[x_pos + 0];
+      x2[1] = tmps->xy[x_pos + 1];
+      x2[2] = tmps->xy[x_pos + 2];
+      x2[3] = tmps->xy[x_pos + 3];
+      x2[4] = tmps->xy[x_pos + 4];
+      x2[5] = tmps->xy[x_pos + 5];
+      x2[6] = tmps->xy[x_pos + 6];
+      x2[7] = tmps->xy[x_pos + 7];
+
+      u32 y2[8];
+      y2[0] = tmps->xy[y_pos + 0];
+      y2[1] = tmps->xy[y_pos + 1];
+      y2[2] = tmps->xy[y_pos + 2];
+      y2[3] = tmps->xy[y_pos + 3];
+      y2[4] = tmps->xy[y_pos + 4];
+      y2[5] = tmps->xy[y_pos + 5];
+      y2[6] = tmps->xy[y_pos + 6];
+      y2[7] = tmps->xy[y_pos + 7];
+
+      point_add (x1, y1, z1, x2, y2);
+    }
+  }
+
+  inv_mod (z1);
+
+  u32 z2[8];
+
+  mul_mod (z2, z1, z1);
+  mul_mod (x1, x1, z2);
+
+  mul_mod (z1, z2, z1);
+  mul_mod (y1, y1, z1);
+}
+
+/*
+ * Fill the w=6 precomputed basepoint table (384 u32 words) into shared/local memory.
+ * All threads in the workgroup must call this function cooperatively.
+ * A SYNC_THREADS() barrier is issued at the end.
+ *
+ * @param lm_xy  out: LOCAL_AS u32 array of size SECP256K1_W6_SHMEM_SIZE (384 words).
+ * @param lid    in:  get_local_id(0).
+ * @param lsz    in:  get_local_size(0).
+ */
+DECLSPEC void set_precomputed_basepoint_g_w6_lm (LOCAL_AS u32 *lm_xy, const u64 lid, const u64 lsz)
+{
+  const u32 SECP256K1_G_W6_CONSTANTS[384] = {
+    SECP256K1_G_W6_PRE_000, SECP256K1_G_W6_PRE_001, SECP256K1_G_W6_PRE_002, SECP256K1_G_W6_PRE_003,
+    SECP256K1_G_W6_PRE_004, SECP256K1_G_W6_PRE_005, SECP256K1_G_W6_PRE_006, SECP256K1_G_W6_PRE_007,
+    SECP256K1_G_W6_PRE_008, SECP256K1_G_W6_PRE_009, SECP256K1_G_W6_PRE_010, SECP256K1_G_W6_PRE_011,
+    SECP256K1_G_W6_PRE_012, SECP256K1_G_W6_PRE_013, SECP256K1_G_W6_PRE_014, SECP256K1_G_W6_PRE_015,
+    SECP256K1_G_W6_PRE_016, SECP256K1_G_W6_PRE_017, SECP256K1_G_W6_PRE_018, SECP256K1_G_W6_PRE_019,
+    SECP256K1_G_W6_PRE_020, SECP256K1_G_W6_PRE_021, SECP256K1_G_W6_PRE_022, SECP256K1_G_W6_PRE_023,
+    SECP256K1_G_W6_PRE_024, SECP256K1_G_W6_PRE_025, SECP256K1_G_W6_PRE_026, SECP256K1_G_W6_PRE_027,
+    SECP256K1_G_W6_PRE_028, SECP256K1_G_W6_PRE_029, SECP256K1_G_W6_PRE_030, SECP256K1_G_W6_PRE_031,
+    SECP256K1_G_W6_PRE_032, SECP256K1_G_W6_PRE_033, SECP256K1_G_W6_PRE_034, SECP256K1_G_W6_PRE_035,
+    SECP256K1_G_W6_PRE_036, SECP256K1_G_W6_PRE_037, SECP256K1_G_W6_PRE_038, SECP256K1_G_W6_PRE_039,
+    SECP256K1_G_W6_PRE_040, SECP256K1_G_W6_PRE_041, SECP256K1_G_W6_PRE_042, SECP256K1_G_W6_PRE_043,
+    SECP256K1_G_W6_PRE_044, SECP256K1_G_W6_PRE_045, SECP256K1_G_W6_PRE_046, SECP256K1_G_W6_PRE_047,
+    SECP256K1_G_W6_PRE_048, SECP256K1_G_W6_PRE_049, SECP256K1_G_W6_PRE_050, SECP256K1_G_W6_PRE_051,
+    SECP256K1_G_W6_PRE_052, SECP256K1_G_W6_PRE_053, SECP256K1_G_W6_PRE_054, SECP256K1_G_W6_PRE_055,
+    SECP256K1_G_W6_PRE_056, SECP256K1_G_W6_PRE_057, SECP256K1_G_W6_PRE_058, SECP256K1_G_W6_PRE_059,
+    SECP256K1_G_W6_PRE_060, SECP256K1_G_W6_PRE_061, SECP256K1_G_W6_PRE_062, SECP256K1_G_W6_PRE_063,
+    SECP256K1_G_W6_PRE_064, SECP256K1_G_W6_PRE_065, SECP256K1_G_W6_PRE_066, SECP256K1_G_W6_PRE_067,
+    SECP256K1_G_W6_PRE_068, SECP256K1_G_W6_PRE_069, SECP256K1_G_W6_PRE_070, SECP256K1_G_W6_PRE_071,
+    SECP256K1_G_W6_PRE_072, SECP256K1_G_W6_PRE_073, SECP256K1_G_W6_PRE_074, SECP256K1_G_W6_PRE_075,
+    SECP256K1_G_W6_PRE_076, SECP256K1_G_W6_PRE_077, SECP256K1_G_W6_PRE_078, SECP256K1_G_W6_PRE_079,
+    SECP256K1_G_W6_PRE_080, SECP256K1_G_W6_PRE_081, SECP256K1_G_W6_PRE_082, SECP256K1_G_W6_PRE_083,
+    SECP256K1_G_W6_PRE_084, SECP256K1_G_W6_PRE_085, SECP256K1_G_W6_PRE_086, SECP256K1_G_W6_PRE_087,
+    SECP256K1_G_W6_PRE_088, SECP256K1_G_W6_PRE_089, SECP256K1_G_W6_PRE_090, SECP256K1_G_W6_PRE_091,
+    SECP256K1_G_W6_PRE_092, SECP256K1_G_W6_PRE_093, SECP256K1_G_W6_PRE_094, SECP256K1_G_W6_PRE_095,
+    SECP256K1_G_W6_PRE_096, SECP256K1_G_W6_PRE_097, SECP256K1_G_W6_PRE_098, SECP256K1_G_W6_PRE_099,
+    SECP256K1_G_W6_PRE_100, SECP256K1_G_W6_PRE_101, SECP256K1_G_W6_PRE_102, SECP256K1_G_W6_PRE_103,
+    SECP256K1_G_W6_PRE_104, SECP256K1_G_W6_PRE_105, SECP256K1_G_W6_PRE_106, SECP256K1_G_W6_PRE_107,
+    SECP256K1_G_W6_PRE_108, SECP256K1_G_W6_PRE_109, SECP256K1_G_W6_PRE_110, SECP256K1_G_W6_PRE_111,
+    SECP256K1_G_W6_PRE_112, SECP256K1_G_W6_PRE_113, SECP256K1_G_W6_PRE_114, SECP256K1_G_W6_PRE_115,
+    SECP256K1_G_W6_PRE_116, SECP256K1_G_W6_PRE_117, SECP256K1_G_W6_PRE_118, SECP256K1_G_W6_PRE_119,
+    SECP256K1_G_W6_PRE_120, SECP256K1_G_W6_PRE_121, SECP256K1_G_W6_PRE_122, SECP256K1_G_W6_PRE_123,
+    SECP256K1_G_W6_PRE_124, SECP256K1_G_W6_PRE_125, SECP256K1_G_W6_PRE_126, SECP256K1_G_W6_PRE_127,
+    SECP256K1_G_W6_PRE_128, SECP256K1_G_W6_PRE_129, SECP256K1_G_W6_PRE_130, SECP256K1_G_W6_PRE_131,
+    SECP256K1_G_W6_PRE_132, SECP256K1_G_W6_PRE_133, SECP256K1_G_W6_PRE_134, SECP256K1_G_W6_PRE_135,
+    SECP256K1_G_W6_PRE_136, SECP256K1_G_W6_PRE_137, SECP256K1_G_W6_PRE_138, SECP256K1_G_W6_PRE_139,
+    SECP256K1_G_W6_PRE_140, SECP256K1_G_W6_PRE_141, SECP256K1_G_W6_PRE_142, SECP256K1_G_W6_PRE_143,
+    SECP256K1_G_W6_PRE_144, SECP256K1_G_W6_PRE_145, SECP256K1_G_W6_PRE_146, SECP256K1_G_W6_PRE_147,
+    SECP256K1_G_W6_PRE_148, SECP256K1_G_W6_PRE_149, SECP256K1_G_W6_PRE_150, SECP256K1_G_W6_PRE_151,
+    SECP256K1_G_W6_PRE_152, SECP256K1_G_W6_PRE_153, SECP256K1_G_W6_PRE_154, SECP256K1_G_W6_PRE_155,
+    SECP256K1_G_W6_PRE_156, SECP256K1_G_W6_PRE_157, SECP256K1_G_W6_PRE_158, SECP256K1_G_W6_PRE_159,
+    SECP256K1_G_W6_PRE_160, SECP256K1_G_W6_PRE_161, SECP256K1_G_W6_PRE_162, SECP256K1_G_W6_PRE_163,
+    SECP256K1_G_W6_PRE_164, SECP256K1_G_W6_PRE_165, SECP256K1_G_W6_PRE_166, SECP256K1_G_W6_PRE_167,
+    SECP256K1_G_W6_PRE_168, SECP256K1_G_W6_PRE_169, SECP256K1_G_W6_PRE_170, SECP256K1_G_W6_PRE_171,
+    SECP256K1_G_W6_PRE_172, SECP256K1_G_W6_PRE_173, SECP256K1_G_W6_PRE_174, SECP256K1_G_W6_PRE_175,
+    SECP256K1_G_W6_PRE_176, SECP256K1_G_W6_PRE_177, SECP256K1_G_W6_PRE_178, SECP256K1_G_W6_PRE_179,
+    SECP256K1_G_W6_PRE_180, SECP256K1_G_W6_PRE_181, SECP256K1_G_W6_PRE_182, SECP256K1_G_W6_PRE_183,
+    SECP256K1_G_W6_PRE_184, SECP256K1_G_W6_PRE_185, SECP256K1_G_W6_PRE_186, SECP256K1_G_W6_PRE_187,
+    SECP256K1_G_W6_PRE_188, SECP256K1_G_W6_PRE_189, SECP256K1_G_W6_PRE_190, SECP256K1_G_W6_PRE_191,
+    SECP256K1_G_W6_PRE_192, SECP256K1_G_W6_PRE_193, SECP256K1_G_W6_PRE_194, SECP256K1_G_W6_PRE_195,
+    SECP256K1_G_W6_PRE_196, SECP256K1_G_W6_PRE_197, SECP256K1_G_W6_PRE_198, SECP256K1_G_W6_PRE_199,
+    SECP256K1_G_W6_PRE_200, SECP256K1_G_W6_PRE_201, SECP256K1_G_W6_PRE_202, SECP256K1_G_W6_PRE_203,
+    SECP256K1_G_W6_PRE_204, SECP256K1_G_W6_PRE_205, SECP256K1_G_W6_PRE_206, SECP256K1_G_W6_PRE_207,
+    SECP256K1_G_W6_PRE_208, SECP256K1_G_W6_PRE_209, SECP256K1_G_W6_PRE_210, SECP256K1_G_W6_PRE_211,
+    SECP256K1_G_W6_PRE_212, SECP256K1_G_W6_PRE_213, SECP256K1_G_W6_PRE_214, SECP256K1_G_W6_PRE_215,
+    SECP256K1_G_W6_PRE_216, SECP256K1_G_W6_PRE_217, SECP256K1_G_W6_PRE_218, SECP256K1_G_W6_PRE_219,
+    SECP256K1_G_W6_PRE_220, SECP256K1_G_W6_PRE_221, SECP256K1_G_W6_PRE_222, SECP256K1_G_W6_PRE_223,
+    SECP256K1_G_W6_PRE_224, SECP256K1_G_W6_PRE_225, SECP256K1_G_W6_PRE_226, SECP256K1_G_W6_PRE_227,
+    SECP256K1_G_W6_PRE_228, SECP256K1_G_W6_PRE_229, SECP256K1_G_W6_PRE_230, SECP256K1_G_W6_PRE_231,
+    SECP256K1_G_W6_PRE_232, SECP256K1_G_W6_PRE_233, SECP256K1_G_W6_PRE_234, SECP256K1_G_W6_PRE_235,
+    SECP256K1_G_W6_PRE_236, SECP256K1_G_W6_PRE_237, SECP256K1_G_W6_PRE_238, SECP256K1_G_W6_PRE_239,
+    SECP256K1_G_W6_PRE_240, SECP256K1_G_W6_PRE_241, SECP256K1_G_W6_PRE_242, SECP256K1_G_W6_PRE_243,
+    SECP256K1_G_W6_PRE_244, SECP256K1_G_W6_PRE_245, SECP256K1_G_W6_PRE_246, SECP256K1_G_W6_PRE_247,
+    SECP256K1_G_W6_PRE_248, SECP256K1_G_W6_PRE_249, SECP256K1_G_W6_PRE_250, SECP256K1_G_W6_PRE_251,
+    SECP256K1_G_W6_PRE_252, SECP256K1_G_W6_PRE_253, SECP256K1_G_W6_PRE_254, SECP256K1_G_W6_PRE_255,
+    SECP256K1_G_W6_PRE_256, SECP256K1_G_W6_PRE_257, SECP256K1_G_W6_PRE_258, SECP256K1_G_W6_PRE_259,
+    SECP256K1_G_W6_PRE_260, SECP256K1_G_W6_PRE_261, SECP256K1_G_W6_PRE_262, SECP256K1_G_W6_PRE_263,
+    SECP256K1_G_W6_PRE_264, SECP256K1_G_W6_PRE_265, SECP256K1_G_W6_PRE_266, SECP256K1_G_W6_PRE_267,
+    SECP256K1_G_W6_PRE_268, SECP256K1_G_W6_PRE_269, SECP256K1_G_W6_PRE_270, SECP256K1_G_W6_PRE_271,
+    SECP256K1_G_W6_PRE_272, SECP256K1_G_W6_PRE_273, SECP256K1_G_W6_PRE_274, SECP256K1_G_W6_PRE_275,
+    SECP256K1_G_W6_PRE_276, SECP256K1_G_W6_PRE_277, SECP256K1_G_W6_PRE_278, SECP256K1_G_W6_PRE_279,
+    SECP256K1_G_W6_PRE_280, SECP256K1_G_W6_PRE_281, SECP256K1_G_W6_PRE_282, SECP256K1_G_W6_PRE_283,
+    SECP256K1_G_W6_PRE_284, SECP256K1_G_W6_PRE_285, SECP256K1_G_W6_PRE_286, SECP256K1_G_W6_PRE_287,
+    SECP256K1_G_W6_PRE_288, SECP256K1_G_W6_PRE_289, SECP256K1_G_W6_PRE_290, SECP256K1_G_W6_PRE_291,
+    SECP256K1_G_W6_PRE_292, SECP256K1_G_W6_PRE_293, SECP256K1_G_W6_PRE_294, SECP256K1_G_W6_PRE_295,
+    SECP256K1_G_W6_PRE_296, SECP256K1_G_W6_PRE_297, SECP256K1_G_W6_PRE_298, SECP256K1_G_W6_PRE_299,
+    SECP256K1_G_W6_PRE_300, SECP256K1_G_W6_PRE_301, SECP256K1_G_W6_PRE_302, SECP256K1_G_W6_PRE_303,
+    SECP256K1_G_W6_PRE_304, SECP256K1_G_W6_PRE_305, SECP256K1_G_W6_PRE_306, SECP256K1_G_W6_PRE_307,
+    SECP256K1_G_W6_PRE_308, SECP256K1_G_W6_PRE_309, SECP256K1_G_W6_PRE_310, SECP256K1_G_W6_PRE_311,
+    SECP256K1_G_W6_PRE_312, SECP256K1_G_W6_PRE_313, SECP256K1_G_W6_PRE_314, SECP256K1_G_W6_PRE_315,
+    SECP256K1_G_W6_PRE_316, SECP256K1_G_W6_PRE_317, SECP256K1_G_W6_PRE_318, SECP256K1_G_W6_PRE_319,
+    SECP256K1_G_W6_PRE_320, SECP256K1_G_W6_PRE_321, SECP256K1_G_W6_PRE_322, SECP256K1_G_W6_PRE_323,
+    SECP256K1_G_W6_PRE_324, SECP256K1_G_W6_PRE_325, SECP256K1_G_W6_PRE_326, SECP256K1_G_W6_PRE_327,
+    SECP256K1_G_W6_PRE_328, SECP256K1_G_W6_PRE_329, SECP256K1_G_W6_PRE_330, SECP256K1_G_W6_PRE_331,
+    SECP256K1_G_W6_PRE_332, SECP256K1_G_W6_PRE_333, SECP256K1_G_W6_PRE_334, SECP256K1_G_W6_PRE_335,
+    SECP256K1_G_W6_PRE_336, SECP256K1_G_W6_PRE_337, SECP256K1_G_W6_PRE_338, SECP256K1_G_W6_PRE_339,
+    SECP256K1_G_W6_PRE_340, SECP256K1_G_W6_PRE_341, SECP256K1_G_W6_PRE_342, SECP256K1_G_W6_PRE_343,
+    SECP256K1_G_W6_PRE_344, SECP256K1_G_W6_PRE_345, SECP256K1_G_W6_PRE_346, SECP256K1_G_W6_PRE_347,
+    SECP256K1_G_W6_PRE_348, SECP256K1_G_W6_PRE_349, SECP256K1_G_W6_PRE_350, SECP256K1_G_W6_PRE_351,
+    SECP256K1_G_W6_PRE_352, SECP256K1_G_W6_PRE_353, SECP256K1_G_W6_PRE_354, SECP256K1_G_W6_PRE_355,
+    SECP256K1_G_W6_PRE_356, SECP256K1_G_W6_PRE_357, SECP256K1_G_W6_PRE_358, SECP256K1_G_W6_PRE_359,
+    SECP256K1_G_W6_PRE_360, SECP256K1_G_W6_PRE_361, SECP256K1_G_W6_PRE_362, SECP256K1_G_W6_PRE_363,
+    SECP256K1_G_W6_PRE_364, SECP256K1_G_W6_PRE_365, SECP256K1_G_W6_PRE_366, SECP256K1_G_W6_PRE_367,
+    SECP256K1_G_W6_PRE_368, SECP256K1_G_W6_PRE_369, SECP256K1_G_W6_PRE_370, SECP256K1_G_W6_PRE_371,
+    SECP256K1_G_W6_PRE_372, SECP256K1_G_W6_PRE_373, SECP256K1_G_W6_PRE_374, SECP256K1_G_W6_PRE_375,
+    SECP256K1_G_W6_PRE_376, SECP256K1_G_W6_PRE_377, SECP256K1_G_W6_PRE_378, SECP256K1_G_W6_PRE_379,
+    SECP256K1_G_W6_PRE_380, SECP256K1_G_W6_PRE_381, SECP256K1_G_W6_PRE_382, SECP256K1_G_W6_PRE_383,
+  };
+
+  for (u64 i = lid; i < SECP256K1_W6_SHMEM_SIZE; i += lsz)
+  {
+    lm_xy[i] = SECP256K1_G_W6_CONSTANTS[i];
+  }
+
+  SYNC_THREADS ();
+}
+
+/*
+ * Point multiplication using the w=6 precomputed table in shared/local memory.
+ * Identical to point_mul_wnaf_w6() but reads the table from lm_xy (LOCAL_AS).
+ * Must be preceded by set_precomputed_basepoint_g_w6_lm() in the same workgroup.
+ */
+DECLSPEC void point_mul_wnaf_w6_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy)
+{
+  u32 naf[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+
+  int loop_start = convert_to_wnaf_byte (naf, k);
+
+  const u32 multiplier0 = (naf[loop_start >> 2] >> ((loop_start & 3) << 3)) & 0xff;
+
+  const u32 odd0  = multiplier0 & 1;
+  const u32 xp0   = ((multiplier0 - 1 + odd0) >> 1) * 24;
+  const u32 yp0   = odd0 ? (xp0 + 8) : (xp0 + 16);
+
+  x1[0] = lm_xy[xp0 + 0];
+  x1[1] = lm_xy[xp0 + 1];
+  x1[2] = lm_xy[xp0 + 2];
+  x1[3] = lm_xy[xp0 + 3];
+  x1[4] = lm_xy[xp0 + 4];
+  x1[5] = lm_xy[xp0 + 5];
+  x1[6] = lm_xy[xp0 + 6];
+  x1[7] = lm_xy[xp0 + 7];
+
+  y1[0] = lm_xy[yp0 + 0];
+  y1[1] = lm_xy[yp0 + 1];
+  y1[2] = lm_xy[yp0 + 2];
+  y1[3] = lm_xy[yp0 + 3];
+  y1[4] = lm_xy[yp0 + 4];
+  y1[5] = lm_xy[yp0 + 5];
+  y1[6] = lm_xy[yp0 + 6];
+  y1[7] = lm_xy[yp0 + 7];
+
+  u32 z1[8] = { 0 };
+  z1[0] = 1;
+
+  for (int pos = loop_start - 1; pos >= 0; pos--)
+  {
+    point_double (x1, y1, z1);
+
+    const u32 multiplier = (naf[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+
+    if (multiplier)
+    {
+      const u32 odd  = multiplier & 1;
+      const u32 x_pos = ((multiplier - 1 + odd) >> 1) * 24;
+      const u32 y_pos = odd ? (x_pos + 8) : (x_pos + 16);
+
+      u32 x2[8];
+      x2[0] = lm_xy[x_pos + 0];
+      x2[1] = lm_xy[x_pos + 1];
+      x2[2] = lm_xy[x_pos + 2];
+      x2[3] = lm_xy[x_pos + 3];
+      x2[4] = lm_xy[x_pos + 4];
+      x2[5] = lm_xy[x_pos + 5];
+      x2[6] = lm_xy[x_pos + 6];
+      x2[7] = lm_xy[x_pos + 7];
+
+      u32 y2[8];
+      y2[0] = lm_xy[y_pos + 0];
+      y2[1] = lm_xy[y_pos + 1];
+      y2[2] = lm_xy[y_pos + 2];
+      y2[3] = lm_xy[y_pos + 3];
+      y2[4] = lm_xy[y_pos + 4];
+      y2[5] = lm_xy[y_pos + 5];
+      y2[6] = lm_xy[y_pos + 6];
+      y2[7] = lm_xy[y_pos + 7];
+
+      point_add (x1, y1, z1, x2, y2);
+    }
+  }
+
+  inv_mod (z1);
+
+  u32 z2[8];
+
+  mul_mod (z2, z1, z1);
+  mul_mod (x1, x1, z2);
+
+  mul_mod (z1, z2, z1);
+  mul_mod (y1, y1, z1);
+}
+
+/*
+ * GLV + wNAF w=5 scalar multiplication (Straus simultaneous method).
+ *
+ * Decomposes k = k1 + k2*lambda (mod n) using GLV endomorphism, then
+ * simultaneously processes wNAF representations of |k1| and |k2|.
+ * phi(P) = (beta*Px mod p, Py) applied to each precomputed point.
+ *
+ * Estimated cost: ~128 doublings + ~44 additions vs ~256 + ~51 for standard w=4.
+ *
+ * @param rx    out: x coordinate of k*G (8 u32).
+ * @param ry    out: y coordinate of k*G (8 u32).
+ * @param k     in:  256-bit scalar (8 u32 little-endian).
+ * @param tmps  in:  w=5 precomputed table (secp256k1_w5_t).
+ */
+DECLSPEC void point_mul_glv_wnaf_w5 (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
+                                      PRIVATE_AS const u32 *k,
+                                      SECP256K1_TMPS_TYPE const secp256k1_w5_t *tmps)
+{
+  /* Decompose k into k1, k2 using GLV Babai rounding. */
+  u32 k1v[6]; /* [0..4] = magnitude, [5] = sign */
+  u32 k2v[6];
+
+  glv_decompose (k, k1v, k2v);
+
+  /* Compute wNAF representations of |k1| and |k2|.
+   * glv_decompose stores the magnitude in k1v[0..4], sign in k1v[5].
+   * Build an 8-word scalar from the 5-word magnitude. */
+  u32 k1_scalar[8] = { k1v[0], k1v[1], k1v[2], k1v[3], k1v[4], 0, 0, 0 };
+  u32 k2_scalar[8] = { k2v[0], k2v[1], k2v[2], k2v[3], k2v[4], 0, 0, 0 };
+
+  u32 naf1[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+  u32 naf2[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+
+  int loop1 = convert_to_wnaf_byte (naf1, k1_scalar);
+  int loop2 = convert_to_wnaf_byte (naf2, k2_scalar);
+
+  int loop_start = loop1 > loop2 ? loop1 : loop2;
+
+  /* Load beta constant for phi(G) = (beta * Gx mod p, Gy). */
+  u32 beta[8];
+  beta[0] = SECP256K1_BETA0;
+  beta[1] = SECP256K1_BETA1;
+  beta[2] = SECP256K1_BETA2;
+  beta[3] = SECP256K1_BETA3;
+  beta[4] = SECP256K1_BETA4;
+  beta[5] = SECP256K1_BETA5;
+  beta[6] = SECP256K1_BETA6;
+  beta[7] = SECP256K1_BETA7;
+
+  /* Initialize accumulator; first non-zero digit sets it. */
+  u32 rx_j[8], ry_j[8], rz_j[8];
+  u32 initialized = 0;
+
+  for (int pos = loop_start; pos >= 0; pos--)
+  {
+    if (initialized)
+    {
+      point_double (rx_j, ry_j, rz_j);
+    }
+
+    const u32 d1 = (naf1[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+    const u32 d2 = (naf2[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+
+    if (d1)
+    {
+      const u32 odd1 = d1 & 1;
+      const u32 xp1  = ((d1 - 1 + odd1) >> 1) * 24;
+      /* odd1==1: positive digit; negate if k1 sign is negative (k1v[5]==1) */
+      u32 yp1;
+      if ((odd1 == 1) != (k1v[5] == 0))
+        yp1 = xp1 + 16; /* use -y */
+      else
+        yp1 = xp1 + 8;  /* use +y */
+
+      u32 x2[8], y2[8];
+      for (u32 i = 0; i < 8; i++) x2[i] = tmps->xy[xp1 + i];
+      for (u32 i = 0; i < 8; i++) y2[i] = tmps->xy[yp1 + i];
+
+      if (!initialized)
+      {
+        for (u32 i = 0; i < 8; i++) rx_j[i] = x2[i];
+        for (u32 i = 0; i < 8; i++) ry_j[i] = y2[i];
+        rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
+        initialized = 1;
+      }
+      else
+      {
+        point_add (rx_j, ry_j, rz_j, x2, y2);
+      }
+    }
+
+    if (d2)
+    {
+      const u32 odd2 = d2 & 1;
+      const u32 xp2  = ((d2 - 1 + odd2) >> 1) * 24;
+      u32 yp2;
+      if ((odd2 == 1) != (k2v[5] == 0))
+        yp2 = xp2 + 16;
+      else
+        yp2 = xp2 + 8;
+
+      /* phi(P): multiply x by beta, keep y unchanged. */
+      u32 base_x[8];
+      for (u32 i = 0; i < 8; i++) base_x[i] = tmps->xy[xp2 + i];
+      u32 phi_px[8], phi_py[8];
+      mul_mod_ptx (phi_px, beta, base_x);
+      for (u32 i = 0; i < 8; i++) phi_py[i] = tmps->xy[yp2 + i];
+
+      if (!initialized)
+      {
+        for (u32 i = 0; i < 8; i++) rx_j[i] = phi_px[i];
+        for (u32 i = 0; i < 8; i++) ry_j[i] = phi_py[i];
+        rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
+        initialized = 1;
+      }
+      else
+      {
+        point_add (rx_j, ry_j, rz_j, phi_px, phi_py);
+      }
+    }
+  }
+
+  /* Convert Jacobian to affine. */
+  inv_mod (rz_j);
+
+  u32 rz2[8];
+  mul_mod (rz2, rz_j, rz_j);
+  mul_mod (rx, rx_j, rz2);
+  mul_mod (rz2, rz2, rz_j);
+  mul_mod (ry, ry_j, rz2);
 }

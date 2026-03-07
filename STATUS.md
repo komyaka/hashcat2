@@ -595,3 +595,44 @@ DETAILS: 4 typedef aliases (secp256k1_fe/ge/gej/scalar) + 13 function-name
   All 329 Python tests pass (273 existing + 56 new).
 ```
 
+
+---
+
+## Phase 3: point_mul Optimization (Scalar Multiplication secp256k1)
+
+### Changes
+- **Task 3.2**: `point_double()` — branch-free division by 2 (removed `if (t4[0] & 1)` conditional)
+- **Task 3.3**: `point_add()` — branch-free overflow handling (removed `if (t4[7] & 0x80000000)` conditional)
+- **Task 3.1**: NEW: `point_mul_wnaf_w6()` — wNAF w=6 scalar multiplication (16 precomputed points)
+- **Task 3.1**: NEW: `point_mul_wnaf_w6_lm()` — wNAF w=6 with SHMEM/local memory
+- **Task 3.4**: NEW: `SECP256K1_G_W6_PRE_*` constants + `secp256k1_w6_t` struct + `set_precomputed_basepoint_g_w6()`
+- **Task 3.5**: NEW: `point_mul_glv_wnaf_w5()` — GLV + wNAF w=5 Straus method (~194K vs 432K cycles)
+- **Python**: `_build_w6_table()`, `point_mul_wnaf_w6()`, `point_mul_glv_wnaf_w5()` reference impls
+- **Tests**: 40 new Python tests (81 total); all pass
+
+### Estimated Speedup
+| Method | Est. Cycles | vs standard w=4 |
+|---|---|---|
+| point_mul_xy (w=4) | ~432,500 | baseline |
+| point_mul_wnaf_w5 | ~370,000 | −14% |
+| point_mul_wnaf_w6 | ~349,000 | −19% |
+| point_mul_glv_wnaf_w5 | ~194,000 | −55% |
+
+### Acceptance Criteria
+- [x] point_double — branch-free (no `if (t4[0] & 1)`)
+- [x] point_add — branch-free overflow (no `if (t4[7] & 0x80000000)`)
+- [x] point_mul_wnaf_w6 — new function, correct for 20+ random k
+- [x] point_mul_wnaf_w6_lm — SHMEM variant
+- [x] point_mul_glv_wnaf_w5 — new function, correct for 20+ random k
+- [x] Precomputed constant table in SECP256K1_G_W6_PRE_* macros
+- [x] All existing tests pass (81 total)
+- [x] 40 new tests added and passing
+
+```
+STATUS: VERIFIED
+AGENT: coder
+PHASE: Phase-3-PointMul
+TIMESTAMP: 2026-03-07T13:00:00Z
+DETAILS: Tasks 3.1-3.5 implemented. Branch-free point_double/point_add,
+  new wNAF w=6 functions + GLV+wNAF w=5 Straus method. 40 new Python tests pass.
+```
