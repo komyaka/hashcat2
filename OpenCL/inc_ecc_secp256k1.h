@@ -516,4 +516,94 @@ DECLSPEC void set_precomputed_basepoint_g_w5_lm (LOCAL_AS u32 *lm_xy, const u64 
 // point_mul_wnaf_w5_lm: like point_mul_wnaf_w5 but reads the 192-word w=5 table from LOCAL_AS.
 DECLSPEC void point_mul_wnaf_w5_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy);
 
+// -----------------------------------------------------------------------
+// Task 8: API unification — libsecp256k1 / KeyHunt compatible interface
+//
+// Sources:
+//   libsecp256k1  https://github.com/bitcoin-core/secp256k1
+//   KeyHunt       https://github.com/KeyHunt/keyhunt
+//   CudaBrainSecp https://github.com/XopMC/CudaBrainSecp
+//   micro-ecc     https://github.com/kmackay/micro-ecc
+//
+// Type aliases map hashcat2 internal storage (arrays of u32 words)
+// to the semantic types used in libsecp256k1 so that ported code can
+// reference familiar names without any run-time overhead.
+//
+// Function-name aliases are plain preprocessor defines that map the
+// libsecp256k1 / KeyHunt naming convention to the hashcat2 implementations.
+// -----------------------------------------------------------------------
+
+// --- Type aliases -------------------------------------------------------
+
+// secp256k1_fe  : field element in GF(p),  stored as 8 × u32  (256 bits, little-endian words)
+//   libsecp256k1 equivalent: secp256k1_fe (src/field.h)
+//   hashcat2 storage: PRIVATE_AS u32 fe[8]
+typedef u32 secp256k1_fe[8];
+
+// secp256k1_ge  : affine group element (x, y), each component 8 × u32
+//   libsecp256k1 equivalent: secp256k1_ge (src/group.h)
+//   hashcat2 storage: two separate u32[8] arrays passed as pointers
+typedef u32 secp256k1_ge[16];   // layout: [x0..x7, y0..y7]
+
+// secp256k1_gej : Jacobi group element (X:Y:Z), each component 8 × u32
+//   libsecp256k1 equivalent: secp256k1_gej (src/group.h)
+//   hashcat2 storage: three separate u32[8] arrays passed as x/y/z pointers
+typedef u32 secp256k1_gej[24];  // layout: [x0..x7, y0..y7, z0..z7]
+
+// secp256k1_scalar : scalar in Zn (integers mod n), stored as 8 × u32
+//   libsecp256k1 equivalent: secp256k1_scalar (src/scalar.h)
+//   hashcat2 storage: PRIVATE_AS u32 k[8]
+typedef u32 secp256k1_scalar[8];
+
+// --- Field-arithmetic function aliases ----------------------------------
+// libsecp256k1 name          → hashcat2 implementation
+// secp256k1_fe_mul(r,a,b)    → mul_mod(r,a,b)
+// secp256k1_fe_sqr(r,a)      → sqr_mod(r,a)
+// secp256k1_fe_add(r,a,b)    → add_mod(r,a,b)
+// secp256k1_fe_sub(r,a,b)    → sub_mod(r,a,b)
+// secp256k1_fe_inv(r,a)      → inv_mod(a)  [in-place; r must equal a]
+// secp256k1_fe_normalize(r)  → mod_512(r)  [reduce 512→256 bits]
+
+#define secp256k1_fe_mul(r, a, b)   mul_mod((r), (a), (b))
+#define secp256k1_fe_sqr(r, a)      sqr_mod((r), (a))
+#define secp256k1_fe_add(r, a, b)   add_mod((r), (a), (b))
+#define secp256k1_fe_sub(r, a, b)   sub_mod((r), (a), (b))
+// inv_mod operates in-place; caller must pass the same pointer for r and a.
+#define secp256k1_fe_inv(a)         inv_mod(a)
+// mod_512 reduces a 512-bit intermediate to 256-bit mod p (Montgomery step).
+#define secp256k1_fe_normalize(r)   mod_512(r)
+
+// --- Group / point-operation function aliases ---------------------------
+// libsecp256k1 name              → hashcat2 implementation
+// secp256k1_gej_double(r,a)      → point_double(x,y,z)
+// secp256k1_gej_add_ge(r,a,b)    → point_add(x1,y1,z1,x2,y2)
+// secp256k1_ecmult_gen(r,k,tmps) → point_mul_xy(x1,y1,k,tmps)
+// secp256k1_ecmult_gen_glv       → point_mul_glv_xy(rx,ry,k,tmps)
+// secp256k1_ecmult_wnaf_w5       → point_mul_wnaf_w5(x1,y1,k,tmps)
+
+// point_double(x,y,z): Jacobi doubling — r = 2·(X:Y:Z), a=0 optimized
+#define secp256k1_gej_double(x, y, z)               point_double((x), (y), (z))
+// point_add(x1,y1,z1,x2,y2): mixed Jacobi+affine addition (z2=1 assumed)
+#define secp256k1_gej_add_ge(x1, y1, z1, x2, y2)   point_add((x1), (y1), (z1), (x2), (y2))
+// point_mul_xy: scalar basepoint multiplication using w=4 wNAF
+#define secp256k1_ecmult_gen(x1, y1, k, tmps)       point_mul_xy((x1), (y1), (k), (tmps))
+// point_mul_glv_xy: GLV-accelerated scalar multiplication (~2× faster)
+#define secp256k1_ecmult_gen_glv(rx, ry, k, tmps)   point_mul_glv_xy((rx), (ry), (k), (tmps))
+// point_mul_wnaf_w5: w=5 wNAF scalar multiplication
+#define secp256k1_ecmult_wnaf_w5(x1, y1, k, tmps)  point_mul_wnaf_w5((x1), (y1), (k), (tmps))
+
+// --- Scalar function aliases -------------------------------------------
+// secp256k1_scalar_split_lambda(k1,k2,k) → glv_decompose(k,k1,k2)
+// KeyHunt: split_k() performs the same GLV decomposition
+#define secp256k1_scalar_split_lambda(k1, k2, k)    glv_decompose((k), (k1), (k2))
+
+// --- Batch-inversion alias ---------------------------------------------
+// libsecp256k1 uses secp256k1_fe_inv_all_var for batch field inversion.
+// hashcat2: batch_inv_mod(elems, prods, n)
+#define secp256k1_fe_inv_all(elems, prods, n)        batch_inv_mod((elems), (prods), (n))
+
+// -----------------------------------------------------------------------
+// End of Task 8 API unification block
+// -----------------------------------------------------------------------
+
 #endif // INC_ECC_SECP256K1_H
