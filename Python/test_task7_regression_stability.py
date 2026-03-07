@@ -417,7 +417,10 @@ def kernel_init_self_test():
             return False
         if point_mul_wnaf_w5(7) != ref:
             return False
-    except Exception:       # noqa: BLE001
+    except Exception as exc:    # noqa: BLE001  — any unexpected error = self-test failed
+        import sys
+        print(f"kernel_init_self_test EXCEPTION: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
         return False
     return True
 
@@ -759,7 +762,7 @@ class TestWatchdogRecover(unittest.TestCase):
         def target():
             try:
                 result_box[0] = fn(*args)
-            except Exception as exc:    # noqa: BLE001
+            except Exception as exc:    # noqa: BLE001 — captured, re-raised after join
                 exc_box[0] = exc
 
         t = threading.Thread(target=target, daemon=True)
