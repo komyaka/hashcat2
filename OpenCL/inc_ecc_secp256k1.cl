@@ -597,6 +597,13 @@ DECLSPEC void mod_512 (PRIVATE_AS u32 *n)
  * the third word c by 1.  This replicates the accumulator loop body used
  * by micro-ecc / libsecp256k1.
  *
+ * AMD-02 note: on GCN 3+ (Polaris and later) and RDNA, the AMD OpenCL
+ * compiler recognises the pattern  acc64 = (u64)a32 * (u64)b32 + acc64
+ * and emits the native v_mad_u64_u32 instruction (2-cycle fused multiply-add).
+ * The three-word accumulator style used here minimises VGPR pressure: only
+ * t0, t1, c are live at any one time (3 × u32 = 1.5 VGPRs), well within
+ * AMD Polaris's 256-VGPR-per-wave budget.
+ *
  * Internal temporaries use the _muladd_ prefix to avoid shadowing any
  * outer variable that might share a common short name.
  *
@@ -604,6 +611,7 @@ DECLSPEC void mod_512 (PRIVATE_AS u32 *n)
  *   micro-ecc uECC.c (schoolbook multiply)
  *   CudaBrainSecp ptx_macros.cu (carry-chain pattern)
  *   lawliet89/gist (PTX mad.lo/mad.hi pattern, generalised here for u64)
+ *   AMD GCN ISA manual: v_mad_u64_u32 (§8.7)
  */
 #define MULADD64(t0_, t1_, c_, a_, b_) do {                         \
   const u64 _muladd_pp = (u64)(a_) * (u64)(b_);                     \
@@ -626,6 +634,10 @@ DECLSPEC void mod_512 (PRIVATE_AS u32 *n)
  *
  * p is provided as p_arr[8] (caller-supplied to avoid redundant initialization
  * when the caller already has p loaded).
+ *
+ * AMD-04 optimisation: on IS_AMD, use select() builtin so the compiler emits
+ * v_cndmask_b32 instructions that read VCC directly — avoiding the mask
+ * arithmetic and letting the register allocator keep the carry in VCC.
  */
 DECLSPEC void reduce_mod_p (PRIVATE_AS u32 *r, u32 c, PRIVATE_AS const u32 *p_arr)
 {
@@ -634,6 +646,25 @@ DECLSPEC void reduce_mod_p (PRIVATE_AS u32 *r, u32 c, PRIVATE_AS const u32 *p_ar
   /* Pass 1: subtract p if V = r + c*2^256 >= p */
   {
     const u32 borrow = sub (tmp, r, p_arr);
+
+    /* Select tmp (r-p) when: c > 0 (carry means r+c*2^256 >= p) OR
+     * borrow == 0 (r >= p so the subtraction did not underflow).          */
+#if defined IS_AMD
+    /* AMD: select() emits v_cndmask_b32 / VCC-based conditional-move. */
+    const u32 use_tmp = (u32)((c != 0u) | (borrow == 0u));
+    r[0] = select (r[0], tmp[0], use_tmp);
+    r[1] = select (r[1], tmp[1], use_tmp);
+    r[2] = select (r[2], tmp[2], use_tmp);
+    r[3] = select (r[3], tmp[3], use_tmp);
+    r[4] = select (r[4], tmp[4], use_tmp);
+    r[5] = select (r[5], tmp[5], use_tmp);
+    r[6] = select (r[6], tmp[6], use_tmp);
+    r[7] = select (r[7], tmp[7], use_tmp);
+
+    /* Update carry: if we selected tmp AND sub() wrapped (borrow==1),
+     * the wrap-around absorbs one 2^256 unit from c.                    */
+    c -= use_tmp & borrow & (u32)(c != 0u);
+#else
     const u32 mask   = -(c | (borrow ^ 1u));
 
     r[0] = (tmp[0] & mask) | (r[0] & ~mask);
@@ -653,11 +684,24 @@ DECLSPEC void reduce_mod_p (PRIVATE_AS u32 *r, u32 c, PRIVATE_AS const u32 *p_ar
      *   (c != 0u)     — guard against decrementing an already-zero c
      * When borrow == 0 (r >= p, no wrap), the "true" carry does not change. */
     c -= (mask >> 31) & borrow & (u32)(c != 0u);
+#endif
   }
 
   /* Pass 2: subtract p again if still V >= p (handles c==2 and the c==1,r>=p case) */
   {
     const u32 borrow = sub (tmp, r, p_arr);
+
+#if defined IS_AMD
+    const u32 use_tmp = (u32)((c != 0u) | (borrow == 0u));
+    r[0] = select (r[0], tmp[0], use_tmp);
+    r[1] = select (r[1], tmp[1], use_tmp);
+    r[2] = select (r[2], tmp[2], use_tmp);
+    r[3] = select (r[3], tmp[3], use_tmp);
+    r[4] = select (r[4], tmp[4], use_tmp);
+    r[5] = select (r[5], tmp[5], use_tmp);
+    r[6] = select (r[6], tmp[6], use_tmp);
+    r[7] = select (r[7], tmp[7], use_tmp);
+#else
     const u32 mask   = -(c | (borrow ^ 1u));
 
     r[0] = (tmp[0] & mask) | (r[0] & ~mask);
@@ -668,6 +712,7 @@ DECLSPEC void reduce_mod_p (PRIVATE_AS u32 *r, u32 c, PRIVATE_AS const u32 *p_ar
     r[5] = (tmp[5] & mask) | (r[5] & ~mask);
     r[6] = (tmp[6] & mask) | (r[6] & ~mask);
     r[7] = (tmp[7] & mask) | (r[7] & ~mask);
+#endif
   }
 }
 

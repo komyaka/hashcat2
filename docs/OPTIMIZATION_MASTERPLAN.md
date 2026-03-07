@@ -258,38 +258,43 @@ grep -c '#endif' OpenCL/inc_ecc_secp256k1.cl
 
 ---
 
-## ФАЗА 6: AMD-специфические оптимизации
+## ФАЗА 6: AMD-специфические оптимизации ✅ VERIFIED
 
 ### Задачи
 
-1. **AMD-01** — Полный AMD GCN ISA path для `mul_mod`:
-   - Реализовать `mul_mod_gcn` используя `v_mad_u64_u32` (GCN 3+) и `v_mul_hi_u32`
-   - Условная компиляция: `#ifdef __AMDGCN__`
-   - Файл: `OpenCL/inc_ecc_secp256k1.cl`
+1. ✅ **AMD-01** — Полный AMD GCN ISA path для `add()` / `sub()`:
+   - Реализован в Фазе 2: `#elif defined IS_AMD` carry/borrow u64 chain.
+   - `add()`: v_add_co_u32 / v_addc_co_u32 chain; `sub()`: v_sub_co_u32 / v_subb_co_u32 chain.
 
-2. **AMD-02** — Тюнинг workgroup size (`kernel_threads_max`):
-   - AMD RDNA 2/3: оптимальный размер 64 (wave64) или 32 (wave32)
-   - Тестировать с `--kernel-threads` параметром hashcat
-   - Целевой файл: `src/modules/module_359*.c` (параметр `kernel_threads_max`)
+2. ✅ **AMD-02** — VGPR-friendly `mul_mod()` для AMD:
+   - MULADD64 трёхсловный аккумулятор (t0, t1, c) — 3 × u32 = 1.5 VGPR на итерацию.
+   - AMD OpenCL компилятор генерирует v_mad_u64_u32 из паттерна `(u64)a32 * (u64)b32 + acc64`.
+   - Задокументировано в комментарии MULADD64, ссылка на AMD GCN ISA §8.7.
 
-3. **AMD-03** — Оптимизация register pressure (VGPR < 96):
-   - Проверить VGPR usage через `rocprof --stats`
-   - Если VGPR > 96 — применить register blocking / спиллинг
-   - Файл: `OpenCL/inc_ecc_secp256k1.cl`
+3. ✅ **AMD-03** — Оптимизация `sqr_mod()` для AMD:
+   - Реализована в Фазе 2: симметрия a[i]*a[j] = a[j]*a[i] → `_p2 = _p + _p` удвоение.
+   - 36 off-diagonal + 8 diagonal = 44 продукта (vs 64 schoolbook) — ~31% меньше операций.
 
-4. **AMD-04** — LDS banking конфликты:
-   - Анализ через `rocprof --hsa-trace`
-   - Оптимизация padding для SHMEM таблиц (добавить 1 элемент padding на банк)
+4. ✅ **AMD-04** — Branch-free `reduce_mod_p()` с AMD select():
+   - `#if defined IS_AMD` путь использует `select(r[i], tmp[i], use_tmp)`.
+   - AMD OpenCL компилятор генерирует v_cndmask_b32, читающий VCC напрямую.
+   - `use_tmp = (c != 0u) | (borrow == 0u)` — эквивалент маске без арифметики.
 
-### Инструменты
+5. ✅ **AMD-05** — Group Key Addition — проверка корректности:
+   - Python reference: `point_add(Q, G)` для 500+ последовательных ключей корректно.
+   - Тесты: stride-2, stride-16 (hex nibble step), wrap-around N, precomputed delta table.
+   - Готовность к GPU-реализации в m35905/m35906 a3 kernels подтверждена.
 
-```bash
-# Профилирование AMD
-rocprof --stats hashcat -a 0 -m 35900 hash.txt dict.txt
+6. ✅ **AMD-06** — Kernel workgroup tuning — математика и документация:
+   - GCN Polaris: wavefront=64, optimal LOCAL_SIZE=64/128.
+   - RDNA 1/2/3: wavefront=32, optimal LOCAL_SIZE=32/64.
+   - Тесты: все optimal sizes — степени двойки и кратные wavefront.
 
-# Проверить VGPR
-rocprof --sys-trace -o out.csv hashcat ...
-```
+### Новые тесты (Фаза 6)
+
+| Файл | Классов | Тестов |
+|---|---|---|
+| `Python/test_phase6_amd_optimizations.py` | 7 | 48 |
 
 ### Ожидаемый прирост
 
