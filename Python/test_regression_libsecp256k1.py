@@ -651,5 +651,137 @@ class TestCrossImplementationConsistency(unittest.TestCase):
             self._assert_all_agree(k)
 
 
+# ---------------------------------------------------------------------------
+# Phase 1 — Edge case and invariant tests (Task 8 / TEST-01 … TEST-04)
+# ---------------------------------------------------------------------------
+
+class TestPhase1EdgeCases(unittest.TestCase):
+    """
+    Phase 1 edge-case and value-equality tests.
+
+    Covers the specific items requested in the Phase 1 audit plan:
+      TEST-01: k=1 → G,  k=2 → 2G,  k=n-1 → -G
+      TEST-02: inv_mod(1)==1,  inv_mod(p-1)==p-1,  inv_mod(2)*2 == 1 mod p
+      TEST-03: batch_inv_mod for n=1, n=2, n=256
+      TEST-04: point_mul(k) == point_mul_glv(k) for 20 random k
+    """
+
+    # ---- TEST-01: point_mul edge scalars --------------------------------
+
+    def test_point_mul_k1_returns_generator(self):
+        """1 * G must equal the generator point (Gx, Gy)."""
+        x, y = point_mul(1)
+        self.assertEqual(x, Gx, "1*G: x must equal Gx")
+        self.assertEqual(y, Gy, "1*G: y must equal Gy")
+        self.assertTrue(_on_curve(x, y))
+
+    def test_point_mul_k2_returns_2g(self):
+        """2 * G must equal the known 2G coordinate."""
+        _2Gx = 0xC6047F9441ED7D6D3045406E95C07CD85C778E4B8CEF3CA7ABAC09B95C709EE5
+        _2Gy = 0x1AE168FEA63DC339A3C58419466CEAEEF7F632653266D0E1236431A950CFE52A
+        x, y = point_mul(2)
+        self.assertEqual(x, _2Gx, "2*G: x mismatch")
+        self.assertEqual(y, _2Gy, "2*G: y mismatch")
+        self.assertTrue(_on_curve(x, y))
+
+    def test_point_mul_n_minus_1_returns_neg_g(self):
+        """
+        (n-1) * G must equal -G = (Gx, p - Gy).
+
+        Because (n-1)*G = -1*G = -(1*G) = (Gx, -Gy mod p),
+        this is the additive inverse of the generator.
+        """
+        x, y = point_mul(N - 1)
+        self.assertIsNotNone(x, "(n-1)*G must not be point at infinity")
+        self.assertEqual(x, Gx, "(n-1)*G: x must equal Gx")
+        self.assertEqual(y, P - Gy, "(n-1)*G: y must equal p - Gy (negation of G)")
+        self.assertTrue(_on_curve(x, y))
+
+    # ---- TEST-02: inv_mod value-equality --------------------------------
+
+    def test_inv_mod_one_equals_one(self):
+        """inv_mod(1) must be exactly 1 (Fermat: 1^(p-2) mod p == 1)."""
+        self.assertEqual(inv_mod(1), 1)
+
+    def test_inv_mod_p_minus_1_equals_p_minus_1(self):
+        """
+        inv_mod(p-1) must equal p-1.
+
+        (p-1) ≡ -1 (mod p), so (-1)^2 = 1 (mod p), meaning p-1 is its own
+        multiplicative inverse: (p-1) * (p-1) = 1 (mod p).
+        """
+        self.assertEqual(inv_mod(P - 1), P - 1)
+
+    def test_inv_mod_2_times_2_is_1(self):
+        """inv_mod(2) * 2 mod p must equal 1."""
+        self.assertEqual(mul_mod(inv_mod(2), 2), 1)
+
+    # ---- TEST-03: batch_inv_mod sizes -----------------------------------
+
+    def test_batch_inv_mod_size_1(self):
+        """batch_inv_mod([a]) == [inv_mod(a)] for several single-element arrays."""
+        for a in [1, 2, P - 1, Gx, Gy]:
+            with self.subTest(a=hex(a)[:10]):
+                result = batch_inv_mod([a])
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0], inv_mod(a))
+
+    def test_batch_inv_mod_size_2(self):
+        """batch_inv_mod of length-2 arrays matches individual inv_mod calls."""
+        pairs = [
+            (1, 2),
+            (Gx, Gy),
+            (P - 1, P - 2),
+            (3, 7),
+        ]
+        for a, b in pairs:
+            with self.subTest(a=hex(a)[:10], b=hex(b)[:10]):
+                result = batch_inv_mod([a, b])
+                self.assertEqual(len(result), 2)
+                self.assertEqual(result[0], inv_mod(a))
+                self.assertEqual(result[1], inv_mod(b))
+                # Cross-check: a * inv(a) == 1
+                self.assertEqual(mul_mod(a, result[0]), 1)
+                self.assertEqual(mul_mod(b, result[1]), 1)
+
+    def test_batch_inv_mod_size_256(self):
+        """
+        batch_inv_mod of 256 elements produces the same result as 256 individual
+        inv_mod calls (Montgomery's trick correctness at realistic batch size).
+        """
+        import random
+        rng = random.Random(0xBEEF)
+        arr = [rng.randrange(1, P) for _ in range(256)]
+        batch = batch_inv_mod(arr)
+        self.assertEqual(len(batch), 256)
+        for i, (a, r) in enumerate(zip(arr, batch)):
+            with self.subTest(i=i):
+                self.assertEqual(r, inv_mod(a), f"batch mismatch at index {i}")
+                self.assertEqual(mul_mod(a, r), 1, f"a*inv(a) != 1 at index {i}")
+
+    # ---- TEST-04: cross-validation point_mul vs point_mul_glv ----------
+
+    def test_cross_validation_point_mul_vs_glv_20_random(self):
+        """
+        point_mul(k) == point_mul_glv(k) for 20 independent random scalars.
+
+        Uses a fixed seed for reproducibility; values differ from the 30-scalar
+        set in TestGLVRegression to provide independent coverage.
+        """
+        import random
+        rng = random.Random(0xC0FFEE1)  # fixed seed distinct from TestGLVRegression
+        for i in range(20):
+            k = rng.randrange(1, N)
+            with self.subTest(i=i, k=hex(k)[:18]):
+                std_x, std_y = point_mul(k)
+                glv_x, glv_y = point_mul_glv(k)
+                self.assertEqual(glv_x, std_x,
+                                 f"GLV x diverges for k={hex(k)[:18]}")
+                self.assertEqual(glv_y, std_y,
+                                 f"GLV y diverges for k={hex(k)[:18]}")
+                if std_x is not None:
+                    self.assertTrue(_on_curve(glv_x, glv_y))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
