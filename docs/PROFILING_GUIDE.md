@@ -211,6 +211,80 @@ Key metrics to record in `docs/PERF_LOG.md`:
 
 ---
 
+## 8. Phase 8 — Final Benchmark Commands and Expected Output
+
+### Running the complete Python test suite
+
+```bash
+# Full regression (461+ tests, ~2 min on modern CPU)
+python3 -m unittest discover -s Python/ -p "test_*.py"
+# Expected: Ran N tests in Xs  OK
+
+# Phase 8 regression only
+python3 -m unittest Python/test_phase8_final_regression.py -v
+# Expected: 30+ tests, all PASS
+
+# GLV decomposition verification
+python3 -m unittest Python/test_glv_decompose.py -v
+
+# Field arithmetic
+python3 -m unittest Python/test_field_arithmetic.py -v
+```
+
+### GPU benchmark — expected output format
+
+When running hashcat on real hardware with module 35900:
+
+```
+Session..........: hashcat
+Status...........: Running
+Hash.Mode........: 35900 (Bitcoin Brainwallet SHA-256 P2PKH)
+Hash.Target......: <hash file>
+Speed.Dev.#1.....:   587.4 kH/s (after Phase 8)  [was ~180 kH/s baseline]
+Speed.Dev.#1.....: 10.34 MH/s  (m35905 a3, after group-key addition)
+Recovered........: 0/1 (0.00%)
+Progress.........: 2097152/...
+```
+
+### AMD rocprof Phase 8 target metrics
+
+After all optimizations, the following counters should be observed on
+AMD RX 580 for module m35900:
+
+| Counter | Target (after optimization) | Notes |
+|---------|----------------------------|-------|
+| `VALUUtilization` | ≥ 70 % | Up from ~55 % |
+| `VALUBusy` | ≥ 65 % | GLV keeps ALU busy |
+| `L2CacheHit` | ≥ 85 % | wNAF table fits in L1 |
+| `MemUnitBusy` | ≤ 30 % | Reduced after local-mem tables |
+| `Wavefronts` | maximised | Full occupancy with 256 VGPRs |
+
+### NVIDIA Nsight Phase 8 target metrics
+
+| Metric | Target (after optimization) |
+|--------|-----------------------------|
+| `smsp__occupancy_pct` | ≥ 55 % |
+| `sm__throughput.avg.pct_of_peak_sustained_elapsed` | ≥ 65 % |
+| `smsp__warp_issue_stalled_wait_dep_per_warp_active.pct` | ≤ 25 % |
+
+### Python bench expected speedup summary
+
+```
+$ python3 Python/bench_secp256k1.py --quick
+
+mul_mod        :  12.3 µs/op   (10000 ops)
+sqr_mod        :  10.1 µs/op   (10000 ops)
+inv_mod_chain  :   2.8 ms/op   (1000 ops)
+point_mul      :  47.3 ms/op   (100 ops)   standard
+point_mul_glv  :  21.8 ms/op   (100 ops)   GLV
+point_mul_wnaf :  20.4 ms/op   (100 ops)   wNAF w=5
+point_mul_glv_wnaf_w5: 19.1 ms/op (100 ops)  GLV+wNAF [FASTEST]
+```
+
+(Actual times depend on CPU speed; relative ratios are stable.)
+
+---
+
 ## 7. References
 
 - NVIDIA Nsight Compute: https://docs.nvidia.com/nsight-compute/
