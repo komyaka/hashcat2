@@ -272,10 +272,16 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 
   u32x w0l = w[0];
 
-  /* Group Key Addition state: Jacobian accumulator and previous key. */
+  /* Group Key Addition (GKA): Jacobian accumulator for P_{i+1} = P_i + G.
+   * gka_{x,y,z}: current point in Jacobian coordinates.
+   * prev_key: the private key processed in the previous iteration.
+   * gka_init: 0 until the first valid scalar multiplication has been done. */
   u32 gka_x[8]    = { 0 };
   u32 gka_y[8]    = { 0 };
   u32 gka_z[8]    = { 0 };
+  /* Sentinel: all-ones is not a valid secp256k1 scalar (> curve order n),
+   * so it will never match prev_key+1 for a real key, forcing a full
+   * point_mul on the very first iteration. */
   u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
                       0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
   u32 gka_init    = 0;
@@ -327,7 +333,7 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 
     if (is_seq & gka_init)
     {
-      /* Incremental: gka_{i+1} = gka_i + G */
+      /* GKA incremental step: accumulator_{i+1} = accumulator_i + G */
       point_add_affine_G (gka_x, gka_y, gka_z);
 
       /* Convert Jacobian to affine. */
@@ -419,10 +425,16 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
 
   u32x w0l = w[0];
 
-  /* Group Key Addition state: Jacobian accumulator and previous key. */
+  /* Group Key Addition (GKA): Jacobian accumulator for P_{i+1} = P_i + G.
+   * gka_{x,y,z}: current point in Jacobian coordinates.
+   * prev_key: the private key processed in the previous iteration.
+   * gka_init: 0 until the first valid scalar multiplication has been done. */
   u32 gka_x[8]    = { 0 };
   u32 gka_y[8]    = { 0 };
   u32 gka_z[8]    = { 0 };
+  /* Sentinel: all-ones is not a valid secp256k1 scalar (> curve order n),
+   * so it will never match prev_key+1 for a real key, forcing a full
+   * point_mul on the very first iteration. */
   u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
                       0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
   u32 gka_init    = 0;
@@ -474,7 +486,7 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
 
     if (is_seq & gka_init)
     {
-      /* Incremental: gka_{i+1} = gka_i + G */
+      /* GKA incremental step: accumulator_{i+1} = accumulator_i + G */
       point_add_affine_G (gka_x, gka_y, gka_z);
 
       /* Convert Jacobian to affine. */
