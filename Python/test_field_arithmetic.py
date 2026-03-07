@@ -4,17 +4,26 @@ Edge and fuzz tests for the secp256k1 field arithmetic functions implemented
 in OpenCL/inc_ecc_secp256k1.cl.
 
 Tested functions (Python reference model):
-  mul_mod(a, b) = (a * b) % p
-  sqr_mod(a)    = (a * a) % p   (must equal mul_mod(a, a))
-  add_mod(a, b) = (a + b) % p
-  sub_mod(a, b) = (a - b) % p   (result is in [0, p-1])
+  mul_mod(a, b)        = (a * b) % p
+  sqr_mod(a)           = (a * a) % p   (must equal mul_mod(a, a))
+  add_mod(a, b)        = (a + b) % p
+  sub_mod(a, b)        = (a - b) % p   (result is in [0, p-1])
+  inv_mod(a)           = pow(a, p-2, p) (Fermat's little theorem)
+  batch_inv_mod(arr)   = [pow(a, p-2, p) for a in arr]  via Montgomery's trick
+                         (1 inversion + (n-1) multiplications)
 
-All four are covered by:
+All four arithmetic ops are covered by:
   1. Identity / zero / one boundary vectors
   2. The field prime boundary  (p-1, p-2, p//2, …)
   3. Overflow / underflow edge cases
   4. Commutativity and associativity spot-checks
   5. Fuzz sweep: 500 random (a, b) pairs against pure-Python reference
+
+batch_inv_mod is covered by:
+  1. Correctness: batch_inv_mod(a) * a == 1 mod p for every element
+  2. Equivalence: batch_inv_mod(arr)[i] == inv_mod(arr[i]) for all i
+  3. Batch sizes n=1, 2, 3, 4 (covers window-table precomputation case of 3)
+  4. Boundary inputs: p-1, p-2, 1, small primes, random 500-element fuzz
 
 PTX-specific correctness is verified by confirming that mul_mod_ptx(a, b)
 must equal mul_mod(a, b) for all inputs (they share the same mathematical
@@ -22,8 +31,11 @@ specification). The PTX sqr_mod_ptx delegates to mul_mod_ptx(a, a), so
 sqr_mod(a) == mul_mod(a, a) is a sufficient correctness condition.
 
 References:
-  OpenCL/inc_ecc_secp256k1.cl  (mul_mod, sqr_mod, mul_mod_ptx, sqr_mod_ptx)
-  micro-ecc uECC.c             (schoolbook 8×8 unrolled multiply reference)
+  OpenCL/inc_ecc_secp256k1.cl  (mul_mod, sqr_mod, mul_mod_ptx, sqr_mod_ptx,
+                                  batch_inv_mod)
+  micro-ecc uECC.c             (schoolbook 8×8 unrolled multiply reference;
+                                  compact batch inversion pattern)
+  libsecp256k1 field_impl.h    (secp256k1_fe_inv_all_var — batch inversion)
   CudaBrainSecp ptx_macros.cu  (carry-chain pattern)
   lawliet89/gist (PTX mad.lo/mad.hi reference)
 """
@@ -60,6 +72,62 @@ def add_mod(a: int, b: int) -> int:
 def sub_mod(a: int, b: int) -> int:
     """Reference: (a - b) % p, result in [0, p-1]."""
     return (a - b) % SECP256K1_P
+
+
+def inv_mod(a: int) -> int:
+    """Reference: a^{p-2} mod p  (Fermat's little theorem; p is prime).
+
+    Matches the OpenCL inv_mod() which uses the Fermat exponentiation loop.
+    Undefined for a == 0 (returns 0 to mirror GPU behaviour for degenerate
+    points, but callers are responsible for avoiding zero inputs).
+    """
+    if a == 0:
+        return 0
+    return pow(a, SECP256K1_P - 2, SECP256K1_P)
+
+
+def batch_inv_mod(arr: list) -> list:
+    """Reference: batch modular inversion via Montgomery's trick.
+
+    Algorithm (mirrors OpenCL batch_inv_mod, derived from libsecp256k1
+    field_impl.h secp256k1_fe_inv_all_var and micro-ecc uECC.c):
+
+        prods[0]   = arr[0]
+        prods[1]   = arr[0] * arr[1]
+        ...
+        prods[n-1] = arr[0] * arr[1] * ... * arr[n-1]
+
+        inv = 1 / prods[n-1]         (single modular inversion)
+
+        for i in range(n-1, 0, -1):
+            result[i] = inv * prods[i-1]
+            inv       = inv * arr[i]
+
+        result[0] = inv
+
+    Cost: 1 inversion + (n-1) multiplications, O(n) total.
+    """
+    n = len(arr)
+    if n == 0:
+        return []
+
+    # Forward pass: build prefix products
+    prods = [0] * n
+    prods[0] = arr[0] % SECP256K1_P
+    for i in range(1, n):
+        prods[i] = (prods[i - 1] * (arr[i] % SECP256K1_P)) % SECP256K1_P
+
+    # Single inversion of the total product
+    inv = pow(prods[n - 1], SECP256K1_P - 2, SECP256K1_P)
+
+    # Backward pass: recover individual inverses
+    result = [0] * n
+    for i in range(n - 1, 0, -1):
+        result[i] = (inv * prods[i - 1]) % SECP256K1_P
+        inv = (inv * (arr[i] % SECP256K1_P)) % SECP256K1_P
+    result[0] = inv
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +441,175 @@ class TestMulModOverflowFuzz(unittest.TestCase):
                 a_, b_ = a % P, b % P
                 expected = (a_ * b_) % P
                 self.assertEqual(mul_mod(a_, b_), expected)
+
+
+class TestBatchInvMod(unittest.TestCase):
+    """
+    Tests for batch modular inversion via Montgomery's trick.
+
+    Core invariant: batch_inv_mod(arr)[i] * arr[i] ≡ 1 (mod p) for each i.
+
+    This mirrors the acceptance criterion from the problem statement:
+      "Тест: batch_inv_mod(a)*a == 1 mod p для каждого элемента."
+
+    The batch implementation follows:
+      - libsecp256k1 src/field_impl.h secp256k1_fe_inv_all_var
+      - micro-ecc uECC.c batch_inv pattern
+    Cost: 1 modular inversion + (n-1) multiplications (O(n) muls total).
+    """
+
+    # -----------------------------------------------------------------------
+    # Helper: verify the core invariant for every element in a list
+    # -----------------------------------------------------------------------
+
+    def _assert_inv_correctness(self, arr: list, inv_arr: list, label: str = ""):
+        self.assertEqual(len(arr), len(inv_arr),
+                         f"{label}: length mismatch {len(arr)} vs {len(inv_arr)}")
+        for i, (a, inv_a) in enumerate(zip(arr, inv_arr)):
+            product = (a * inv_a) % P
+            self.assertEqual(product, 1,
+                             f"{label}[{i}]: {a:#x} * {inv_a:#x} = {product} (mod p), expected 1")
+
+    # -----------------------------------------------------------------------
+    # Batch sizes: n = 1, 2, 3, 4
+    # -----------------------------------------------------------------------
+
+    def test_n1_single_element(self):
+        """batch_inv_mod of a single element equals inv_mod."""
+        a = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+        a %= P
+        result = batch_inv_mod([a])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], inv_mod(a))
+        self._assert_inv_correctness([a], result, "n=1")
+
+    def test_n2_two_elements(self):
+        """n=2: each result satisfies result[i]*arr[i] == 1 mod p."""
+        arr = [3, P - 1]
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "n=2")
+
+    def test_n3_window_table_case(self):
+        """n=3: models the 3 Z-coordinates inverted in point_get_coords."""
+        # Typical Jacobian Z values after 3G, 5G, 7G additions
+        arr = [
+            0x3086D221A7D46BCDE86C90E49284EB153DAA8A1471E8CA7FE893209A45DBB031,
+            0xE4437ED6010E88286F547FA90ABFE4C4221208AC9D8F0DD1CF1DA4C89B62D6E2,
+            0xAB1F728DE2F41D001291D6C91A2B59B75FCDE5B20FB0E55BFFF1CF5A5E6D5A3,
+        ]
+        arr = [a % P for a in arr]
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "n=3 (window table Z-coords)")
+
+    def test_n4_four_elements(self):
+        """n=4: general case."""
+        arr = [2, 3, 5, 7]
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "n=4")
+
+    # -----------------------------------------------------------------------
+    # Boundary / edge cases
+    # -----------------------------------------------------------------------
+
+    def test_boundary_pm1(self):
+        """arr = [p-1]: inverse of p-1 is p-1 (since (p-1)^2 = 1 mod p)."""
+        arr = [P - 1]
+        result = batch_inv_mod(arr)
+        self.assertEqual(result[0], P - 1, "(p-1)^{-1} should be p-1")
+        self._assert_inv_correctness(arr, result, "p-1")
+
+    def test_boundary_pm2(self):
+        """arr = [p-2]: inverse of p-2."""
+        arr = [P - 2]
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "p-2")
+
+    def test_boundary_one(self):
+        """inv(1) == 1."""
+        arr = [1]
+        result = batch_inv_mod(arr)
+        self.assertEqual(result[0], 1)
+
+    def test_boundary_two(self):
+        """inv(2) == (p+1)//2."""
+        arr = [2]
+        result = batch_inv_mod(arr)
+        expected = (P + 1) // 2
+        self.assertEqual(result[0], expected,
+                         f"inv(2) should be (p+1)//2 = {expected:#x}")
+        self._assert_inv_correctness(arr, result, "inv(2)")
+
+    def test_small_primes(self):
+        """Batch inversion of first 8 small primes."""
+        arr = [2, 3, 5, 7, 11, 13, 17, 19]
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "small primes")
+        # Also check each matches individual inv_mod
+        for a, inv_a in zip(arr, result):
+            self.assertEqual(inv_a, inv_mod(a),
+                             f"batch inv({a}) != individual inv({a})")
+
+    def test_field_boundary_values(self):
+        """Boundary values near p."""
+        arr = [1, 2, P - 2, P - 1, P // 2, (P + 1) // 2]
+        arr = [a % P for a in arr if a % P != 0]
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "boundary values")
+
+    # -----------------------------------------------------------------------
+    # Equivalence: batch_inv_mod == individual inv_mod for all elements
+    # -----------------------------------------------------------------------
+
+    def test_batch_matches_individual_n3(self):
+        """For n=3, batch result must equal individual inv_mod on each element."""
+        arr = [
+            0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2E,  # p-1
+            0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,  # Gx
+            0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8,  # Gy
+        ]
+        arr = [a % P for a in arr]
+        result = batch_inv_mod(arr)
+        for i, (a, inv_a) in enumerate(zip(arr, result)):
+            expected = inv_mod(a)
+            self.assertEqual(inv_a, expected,
+                             f"batch_inv[{i}]({a:#x}) = {inv_a:#x}, expected {expected:#x}")
+
+    # -----------------------------------------------------------------------
+    # Fuzz: 500 random elements -- batch_inv_mod(a)*a == 1 mod p
+    # -----------------------------------------------------------------------
+
+    def test_fuzz_random_500_elements(self):
+        """
+        Primary acceptance-criterion test (from problem statement):
+          batch_inv_mod(a) * a == 1 (mod p) for each element.
+
+        Uses a batch of 500 random non-zero field elements.
+        """
+        rng = random.Random(0xBA7C11)
+        arr = []
+        while len(arr) < 500:
+            v = rng.randrange(1, P)  # exclude 0
+            arr.append(v)
+        result = batch_inv_mod(arr)
+        self._assert_inv_correctness(arr, result, "fuzz-500")
+
+    def test_fuzz_matches_individual_100(self):
+        """For 100 random elements, batch_inv equals individual inv_mod."""
+        rng = random.Random(0xC0FFEEBA7)
+        arr = [rng.randrange(1, P) for _ in range(100)]
+        result = batch_inv_mod(arr)
+        for i, (a, inv_a) in enumerate(zip(arr, result)):
+            expected = inv_mod(a)
+            self.assertEqual(inv_a, expected,
+                             f"fuzz[{i}]: batch_inv({a:#x}) = {inv_a:#x} != ind_inv = {expected:#x}")
+
+    # -----------------------------------------------------------------------
+    # Empty batch
+    # -----------------------------------------------------------------------
+
+    def test_empty_batch(self):
+        """batch_inv_mod([]) returns []."""
+        self.assertEqual(batch_inv_mod([]), [])
 
 
 if __name__ == '__main__':
