@@ -279,9 +279,9 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
   u32 gka_x[8]    = { 0 };
   u32 gka_y[8]    = { 0 };
   u32 gka_z[8]    = { 0 };
-  /* Sentinel: all-ones is not a valid secp256k1 scalar (> curve order n),
-   * so it will never match prev_key+1 for a real key, forcing a full
-   * point_mul on the very first iteration. */
+  /* Sentinel: all-ones (0xFFFF...FFFF > n = 0xFFFFFFFEBAAEDCE6...0364141) is not a
+   * valid secp256k1 scalar, so it will never match prev_key+1 for a real key, forcing
+   * a full point_mul on the very first iteration. */
   u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
                       0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
   u32 gka_init    = 0;
@@ -432,9 +432,9 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
   u32 gka_x[8]    = { 0 };
   u32 gka_y[8]    = { 0 };
   u32 gka_z[8]    = { 0 };
-  /* Sentinel: all-ones is not a valid secp256k1 scalar (> curve order n),
-   * so it will never match prev_key+1 for a real key, forcing a full
-   * point_mul on the very first iteration. */
+  /* Sentinel: all-ones (0xFFFF...FFFF > n = 0xFFFFFFFEBAAEDCE6...0364141) is not a
+   * valid secp256k1 scalar, so it will never match prev_key+1 for a real key, forcing
+   * a full point_mul on the very first iteration. */
   u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
                       0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
   u32 gka_init    = 0;

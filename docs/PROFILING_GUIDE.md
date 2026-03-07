@@ -295,3 +295,46 @@ point_mul_glv_wnaf_w5: 19.1 ms/op (100 ops)  GLV+wNAF [FASTEST]
 - micro-ecc: https://github.com/kmackay/micro-ecc
 - KeyHunt: https://github.com/KeyHunt/keyhunt
 - Gist PTX macros: https://gist.github.com/lawliet89/9677319
+
+---
+
+## Phase 8: Benchmark Commands for New Optimizations
+
+### Group Key Addition (GKA) — m35905_a3 / m35906_a3
+
+```bash
+# Sequential hex brute-force benchmark (GKA path active):
+hashcat -m 35905 -a 3 hash.txt ?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h?h \
+  --self-test-disable -w 4 --opencl-info
+
+# Verify GKA vs fallback (non-sequential mask with fixed middle bytes):
+# GKA fires when il_pos key == prev_key + 1 (typical for ?h mask over last nibbles)
+```
+
+Expected speedup: ~3× on sequential scans (point_add_affine_G + inv_mod
+vs full point_mul_glv_wnaf_w5).
+
+### XYZZ Coordinate Verification
+
+```python
+# Python reference test (no GPU needed):
+python3 -m unittest Python/test_phase8_optimizations.TestXYZZCoordinates -v
+```
+
+### Comb Method Activation
+
+To enable the d=4 comb method for a module, define `SECP256K1_USE_COMB` before
+including `inc_ecc_secp256k1.cl`:
+
+```c
+#define SECP256K1_USE_COMB
+#include "inc_ecc_secp256k1.cl"
+// Then call: point_mul_comb(rx, ry, k)
+```
+
+### Full Phase 8 Test Suite
+
+```bash
+python3 -m unittest Python/test_phase8_optimizations.py -v
+# Expected: 56 tests OK
+```

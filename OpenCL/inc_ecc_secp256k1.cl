@@ -4847,9 +4847,11 @@ DECLSPEC void point_double_xyzz (PRIVATE_AS u32 *X, PRIVATE_AS u32 *Y,
                                   PRIVATE_AS u32 *ZZ, PRIVATE_AS u32 *ZZZ)
 {
   /* XYZZ point doubling for short Weierstrass curves with a=0 (secp256k1).
-   * Formula: dbl-2008-s-1 from https://hyperelliptic.org/EFD/g1p/auto-shortw-xyzz.html
-   * Cost: 1M + 5S + add + 2*2 + 1*3 + 1*4 + 1*8 (cheapest ops not counted).
-   * Saves squarings vs Jacobian: 1M+5S here vs 1M+8S for dbl-2009-l Jacobian. */
+   * Derived from dbl-2008-s-1 (EFD) extended for general ZZ1 input.
+   * From Jacobian: Z3 = 2*Y1*Z1, so ZZ3 = Z3^2 = 4*Y1^2*ZZ1 = V*ZZ1,
+   *                                   ZZZ3 = Z3^3 = 8*Y1^3*ZZZ1 = W*ZZZ1.
+   * The EFD formula (ZZ3=V, ZZZ3=W) only holds for ZZ1=1 (affine input).
+   * This implementation is correct for arbitrary ZZ1, ZZZ1. */
 
   u32 U[8];
   add_mod (U, Y, Y);             /* U = 2*Y1 */
@@ -4883,8 +4885,8 @@ DECLSPEC void point_double_xyzz (PRIVATE_AS u32 *X, PRIVATE_AS u32 *Y,
   mul_mod (WY, W, Y);            /* W*Y1 */
   sub_mod (Y, tmp, WY);          /* Y3 = M*(S-X3) - W*Y1 */
 
-  for (u32 i = 0; i < 8; i++) ZZ[i]  = V[i];   /* ZZ3 = V */
-  for (u32 i = 0; i < 8; i++) ZZZ[i] = W[i];   /* ZZZ3 = W */
+  mul_mod (ZZ,  V, ZZ);          /* ZZ3  = V * ZZ1  (in-place update of input ZZ)  */
+  mul_mod (ZZZ, W, ZZZ);         /* ZZZ3 = W * ZZZ1 (in-place update of input ZZZ) */
 }
 
 DECLSPEC void point_add_mixed_xyzz (PRIVATE_AS u32 *X1, PRIVATE_AS u32 *Y1,

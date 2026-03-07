@@ -3,7 +3,32 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: Phase-8-CriticalPerformanceOptimizations
+PHASE: Phase-8-CriticalPerformanceOptimizations-Final
+TIMESTAMP: 2026-03-07T17:30:00Z
+DETAILS: Phase 8 critical performance optimizations fully verified.
+  - point_add_affine_G(): added to inc_ecc_secp256k1.cl; wraps point_add() with
+    compile-time G constants. Enables GKA incremental P_{i+1}=P_i+G (~2K cycles).
+  - point_double_xyzz(): XYZZ doubling with correct ZZ3=V*ZZ1, ZZZ3=W*ZZZ1 (handles
+    general ZZ≠1 inputs). Derived from dbl-2008-s-1 extended for non-affine inputs.
+  - point_add_mixed_xyzz(): XYZZ+affine mixed add (madd-2008-s, correct for general ZZ1).
+  - point_mul_comb(): d=4 fixed-base comb method, 15-entry table, all values verified.
+    Guarded by #ifdef SECP256K1_USE_COMB.
+  - m35905_a3-pure.cl: prv_to_hash160_xy(), add1_256(), GKA loop (sequential detection
+    + point_add_affine_G fallback to full scalar mul).
+  - m35906_a3-pure.cl: prv_to_eth_addr_xy(), add1_256(), identical GKA pattern.
+  - Python/test_phase8_optimizations.py: 56 new tests (7 classes: GKA, XYZZ, Comb,
+    Module Validation, Register Estimation, XYZZ Affine Recovery, Sequential Detection).
+  - docs: SECP256K1_ANALYSIS.md, OPTIMIZATION_SUMMARY.md, PROFILING_GUIDE.md updated.
+CHANGES:
+  - OpenCL/inc_ecc_secp256k1.cl: +253 lines (new functions, corrected XYZZ doubling)
+  - OpenCL/inc_ecc_secp256k1.h: +30 lines (declarations + SECP256K1_USE_COMB guard)
+  - OpenCL/m35905_a3-pure.cl: +208 lines (GKA optimizations for Bitcoin)
+  - OpenCL/m35906_a3-pure.cl: +171 lines (GKA optimizations for Ethereum)
+  - Python/test_phase8_optimizations.py: new (56 tests)
+  - docs/{SECP256K1_ANALYSIS,OPTIMIZATION_SUMMARY,PROFILING_GUIDE}.md: Phase 8 sections
+TEST_RESULTS: 591 Python tests pass (535 pre-existing + 56 new)
+```
+
 TIMESTAMP: 2026-03-07T17:00:00Z
 DETAILS: Phase 8 critical performance optimizations implemented.
   - Task 1: point_add_affine_G() added to inc_ecc_secp256k1.cl — loads G from
