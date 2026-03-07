@@ -39,9 +39,13 @@ KERNEL_FQ KERNEL_FA void m35910_mxx (KERN_ATTR_RULES ())
    * base
    */
 
-  secp256k1_t preG;
+  // SHMEM: workgroup-shared precomputed basepoint table for w=4 point_mul
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
 
-  set_precomputed_basepoint_g (&preG);
+  LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_lm (s_secp256k1_xy, lid, lsz);
 
   COPY_PW (pws[gid]);
 
@@ -97,7 +101,7 @@ KERNEL_FQ KERNEL_FA void m35910_mxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy (x, y, prv_key, &preG);
+    point_mul_xy_lm (x, y, prv_key, s_secp256k1_xy);
 
     // Step 3: compressed public key (33 bytes)
 
@@ -193,9 +197,13 @@ KERNEL_FQ KERNEL_FA void m35910_sxx (KERN_ATTR_RULES ())
    * base
    */
 
-  secp256k1_t preG;
+  // SHMEM: workgroup-shared precomputed basepoint table for w=4 point_mul
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
 
-  set_precomputed_basepoint_g (&preG);
+  LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_lm (s_secp256k1_xy, lid, lsz);
 
   COPY_PW (pws[gid]);
 
@@ -241,7 +249,7 @@ KERNEL_FQ KERNEL_FA void m35910_sxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy (x, y, prv_key, &preG);
+    point_mul_xy_lm (x, y, prv_key, s_secp256k1_xy);
 
     u32 pub_key[16] = { 0 };
 

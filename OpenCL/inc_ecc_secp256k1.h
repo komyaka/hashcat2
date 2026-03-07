@@ -292,6 +292,20 @@
 // 4 digits packed per u32. ceil(257/4) = 65 u32 words.
 #define SECP256K1_NAF_BYTE_SIZE  65
 
+// Feature flag: define SECP256K1_USE_SHMEM before including this header to enable
+// workgroup-shared precomputed table paths (set_precomputed_basepoint_g_lm,
+// point_mul_xy_lm, set_precomputed_basepoint_g_w5_lm, point_mul_wnaf_w5_lm).
+// Shared memory (LOCAL_AS) table is populated cooperatively by all workgroup threads.
+// Requires: LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE] declared in the kernel.
+#ifndef SECP256K1_USE_SHMEM
+#define SECP256K1_USE_SHMEM 0
+#endif
+
+// Size of the shared-memory table for the w=4 basepoint table (words)
+#define SECP256K1_SHMEM_SIZE      96
+// Size of the shared-memory table for the w=5 basepoint table (words)
+#define SECP256K1_W5_SHMEM_SIZE  192
+
 #define PUBLIC_KEY_LENGTH_WITHOUT_PARITY 8
 #define PUBLIC_KEY_LENGTH_X_Y_WITHOUT_PARITY 16
 // 8+1 to make room for the parity
@@ -486,5 +500,20 @@ DECLSPEC void convert_to_wnaf_w (PRIVATE_AS u32 *naf, PRIVATE_AS const u32 *k, c
 DECLSPEC int  convert_to_wnaf_byte (PRIVATE_AS u32 *naf, PRIVATE_AS const u32 *k);
 DECLSPEC void point_mul_wnaf_w5 (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_w5_t *tmps);
 DECLSPEC void set_precomputed_basepoint_g_w5 (PRIVATE_AS secp256k1_w5_t *r);
+
+// SHMEM/LDS variants: workgroup-cooperative initialization + LOCAL_AS table access.
+// set_precomputed_basepoint_g_lm: fills lm_xy[0..95] using cooperative lid/lsz stride,
+//   then calls SYNC_THREADS() to ensure all threads see the full table.
+DECLSPEC void set_precomputed_basepoint_g_lm (LOCAL_AS u32 *lm_xy, const u64 lid, const u64 lsz);
+
+// point_mul_xy_lm: like point_mul_xy but reads the 96-word w=4 table from LOCAL_AS.
+DECLSPEC void point_mul_xy_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy);
+
+// set_precomputed_basepoint_g_w5_lm: fills lm_xy[0..191] using cooperative lid/lsz stride,
+//   then calls SYNC_THREADS().
+DECLSPEC void set_precomputed_basepoint_g_w5_lm (LOCAL_AS u32 *lm_xy, const u64 lid, const u64 lsz);
+
+// point_mul_wnaf_w5_lm: like point_mul_wnaf_w5 but reads the 192-word w=5 table from LOCAL_AS.
+DECLSPEC void point_mul_wnaf_w5_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy);
 
 #endif // INC_ECC_SECP256K1_H
