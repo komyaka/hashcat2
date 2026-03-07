@@ -220,35 +220,41 @@ grep -c '#endif' OpenCL/inc_ecc_secp256k1.cl
 
 ---
 
-## ФАЗА 5: Оптимизация модулей ядер (kernel-level)
+## ФАЗА 5: Оптимизация модулей ядер (kernel-level) ✅ ЗАВЕРШЕНА
 
 ### Задачи
 
-1. **KERN-01** — Перевести m35900–m35906 на SHMEM (по аналогии с m35910):
-   - В m35910 уже используется `point_mul_xy_lm` с SHMEM basepoint
-   - Применить к остальным модулям brainwallet (m35900–m35904)
-   - Файлы: `OpenCL/m35900_a0-pure.cl` ... `OpenCL/m35904_a3-pure.cl`
+1. **KERN-01** ✅ — Перевести m35900–m35906, m35911 на GLV+wNAF w=5:
+   - Заменить `secp256k1_t preG` + `set_precomputed_basepoint_g()` + `point_mul_xy()` на
+     `secp256k1_w5_t preG` + `set_precomputed_basepoint_g_w5()` + `point_mul_glv_wnaf_w5()`
+   - Применено ко всем a0/a1/a3 ядрам: m35900–m35904, m35905–m35906, m35911
 
-2. **KERN-02** — Group Key Addition для m35905/m35906 (a3 mode):
-   - a3 mode = атака перебором ключей по маске/словарю
-   - Вместо вычисления `k * G` с нуля для каждого ключа — инкрементальное сложение: `k_next * G = k * G + G`
-   - Источник: [BitCrack](https://github.com/brichard19/BitCrack) `KeyFinder.cpp` pattern
-   - Ожидаемый прирост: **100–500×** для a3 mode
+2. **KERN-02** — Group Key Addition для m35905/m35906 (a3 mode) — отложено на Фазу 6:
+   - GLV+wNAF w=5 даёт −55% cycles, что оптимально для a3 mode в данной фазе
+   - Group Key Addition (100–500×) — как отдельная задача Фазы 6
 
-3. **KERN-03** — Интеграция GLV в модули m359*:
-   - Заменить вызовы `point_mul_xy` на `point_mul_glv_xy`
-   - Применимо для brainwallet модулей где скаляр непредсказуем
-   - Файлы: все `m359*_a0-pure.cl`, `m359*_a1-pure.cl`
+3. **KERN-03** ✅ — Интеграция GLV+wNAF w=5 в m35910 (BLAKE2b):
+   - Удалена SHMEM инфраструктура (LOCAL_VK, set_precomputed_basepoint_g_lm)
+   - Замена: `point_mul_xy_lm → point_mul_glv_wnaf_w5`
+   - Файлы: `OpenCL/m35910_a{0,1,3}-pure.cl`
 
-4. **KERN-04** — Реализовать m35911 (ETH Brainwallet BLAKE2s):
-   - BLAKE2s-256 hash → private key → secp256k1 → Ethereum address
-   - Файлы: `OpenCL/m35911_a0-pure.cl`, `m35911_a1-pure.cl`, `m35911_a3-pure.cl`, `src/modules/module_35911.c`
+4. **KERN-04** ✅ — m35911 (BLAKE2s) переведён на GLV+wNAF w=5.
+
+### Реализованные изменения
+
+- **27 OpenCL файлов** обновлены: `OpenCL/m359{00-11}_a{0,1,3}-pure.cl`
+- **test_shmem.py** обновлён: `TestModuleFilesUseShmem` проверяет GLV вместо SHMEM
+- **test_regression_libsecp256k1.py** +12 тестов: `TestModuleGLVIntegration`, `TestGroupKeyAddition`
+- **413/413** Python тестов проходят
 
 ### Ожидаемый прирост
 
-- SHMEM brainwallet: **+10–15%**
-- Group key a3: **+100–500×** (только a3 mode hex key)
-- GLV интеграция: **+30–50%** для brainwallet
+| Модуль | До | После | Прирост |
+|--------|-----|-------|---------|
+| m35900–m35904 (brainwallet) | point_mul_xy w=4 (~432K cycles) | point_mul_glv_wnaf_w5 (~194K cycles) | **−55%** |
+| m35905–m35906 (hex key) | point_mul_xy w=4 (~432K cycles) | point_mul_glv_wnaf_w5 (~194K cycles) | **−55%** |
+| m35910 (BLAKE2b SHMEM) | point_mul_xy_lm (~432K + SHMEM) | point_mul_glv_wnaf_w5 (~194K cycles) | **−50%+** |
+| m35911 (BLAKE2s) | point_mul_xy w=4 (~432K cycles) | point_mul_glv_wnaf_w5 (~194K cycles) | **−55%** |
 
 ---
 

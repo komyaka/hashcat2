@@ -196,12 +196,12 @@ DECLSPEC void reverse_prv_key (PRIVATE_AS u32 *prv_rev, PRIVATE_AS const u32 *pr
 
 // Derive Ethereum address (last 20 bytes of Keccak256(x||y)) from private key
 DECLSPEC void prv_to_eth_addr (PRIVATE_AS u32 *addr, PRIVATE_AS const u32 *prv_key,
-                                SECP256K1_TMPS_TYPE secp256k1_t *preG)
+                                SECP256K1_TMPS_TYPE secp256k1_w5_t *preG)
 {
   u32 x[8];
   u32 y[8];
 
-  point_mul_xy (x, y, prv_key, preG);
+  point_mul_glv_wnaf_w5 (x, y, prv_key, preG);
 
   // Uncompressed public key (64 bytes): x (big-endian) || y (big-endian)
   u32 pub_key[16];
@@ -232,9 +232,9 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_RULES ())
 
   if (gid >= GID_CNT) return;
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -290,9 +290,9 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_RULES ())
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 

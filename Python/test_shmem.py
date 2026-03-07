@@ -385,7 +385,7 @@ class TestShmemHeaderParsing(unittest.TestCase):
 
 
 class TestModuleFilesUseShmem(unittest.TestCase):
-    """Verify that m35910_* module files use the SHMEM path."""
+    """Verify that m35910_* module files use the GLV+wNAF w=5 path (Phase 5)."""
 
     _MODULES = [
         "OpenCL/m35910_a0-pure.cl",
@@ -398,51 +398,54 @@ class TestModuleFilesUseShmem(unittest.TestCase):
         with open(path) as fh:
             return fh.read()
 
-    def test_a0_uses_point_mul_xy_lm(self):
+    def test_a0_uses_point_mul_glv_wnaf_w5(self):
+        """Phase 5: a0 must use GLV+wNAF w=5 scalar multiplication."""
         content = self._read("OpenCL/m35910_a0-pure.cl")
-        self.assertIn("point_mul_xy_lm", content)
+        self.assertIn("point_mul_glv_wnaf_w5", content)
 
     def test_a0_no_private_preG(self):
-        """a0 must not declare the old private preG table."""
+        """a0 must not declare the old w=4 private preG table."""
         content = self._read("OpenCL/m35910_a0-pure.cl")
         self.assertNotIn("secp256k1_t preG", content)
 
-    def test_a1_uses_point_mul_xy_lm(self):
+    def test_a1_uses_point_mul_glv_wnaf_w5(self):
+        """Phase 5: a1 must use GLV+wNAF w=5 scalar multiplication."""
         content = self._read("OpenCL/m35910_a1-pure.cl")
-        self.assertIn("point_mul_xy_lm", content)
+        self.assertIn("point_mul_glv_wnaf_w5", content)
 
     def test_a1_no_private_preG(self):
         content = self._read("OpenCL/m35910_a1-pure.cl")
         self.assertNotIn("secp256k1_t preG", content)
 
-    def test_a3_uses_point_mul_xy_lm(self):
+    def test_a3_uses_point_mul_glv_wnaf_w5(self):
+        """Phase 5: a3 must use GLV+wNAF w=5 scalar multiplication."""
         content = self._read("OpenCL/m35910_a3-pure.cl")
-        self.assertIn("point_mul_xy_lm", content)
+        self.assertIn("point_mul_glv_wnaf_w5", content)
 
     def test_a3_no_private_preG(self):
         content = self._read("OpenCL/m35910_a3-pure.cl")
         self.assertNotIn("secp256k1_t preG", content)
 
-    def test_all_modules_declare_shmem_array(self):
-        """Each module must declare LOCAL_VK u32 s_secp256k1_xy."""
+    def test_all_modules_use_secp256k1_w5_t(self):
+        """Each module must declare the w=5 precomputed table (secp256k1_w5_t)."""
         for rel in self._MODULES:
             with self.subTest(module=rel):
                 content = self._read(rel)
-                self.assertIn("LOCAL_VK u32 s_secp256k1_xy", content)
+                self.assertIn("secp256k1_w5_t preG", content)
 
-    def test_all_modules_call_set_lm(self):
-        """Each module must call set_precomputed_basepoint_g_lm."""
+    def test_all_modules_call_set_precomputed_g_w5(self):
+        """Each module must call set_precomputed_basepoint_g_w5."""
         for rel in self._MODULES:
             with self.subTest(module=rel):
                 content = self._read(rel)
-                self.assertIn("set_precomputed_basepoint_g_lm", content)
+                self.assertIn("set_precomputed_basepoint_g_w5", content)
 
-    def test_all_modules_use_shmem_size_constant(self):
-        """Each module must reference SECP256K1_SHMEM_SIZE."""
+    def test_all_modules_use_glv_wnaf(self):
+        """Each module must call point_mul_glv_wnaf_w5."""
         for rel in self._MODULES:
             with self.subTest(module=rel):
                 content = self._read(rel)
-                self.assertIn("SECP256K1_SHMEM_SIZE", content)
+                self.assertIn("point_mul_glv_wnaf_w5", content)
 
 
 class TestClFileHasShmemFunctions(unittest.TestCase):

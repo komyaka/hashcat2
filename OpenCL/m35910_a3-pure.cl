@@ -45,13 +45,9 @@ KERNEL_FQ KERNEL_FA void m35910_mxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-  // SHMEM: workgroup-shared precomputed basepoint table for w=4 point_mul
-  const u64 lid = get_local_id (0);
-  const u64 lsz = get_local_size (0);
+  secp256k1_w5_t preG;
 
-  LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE];
-
-  set_precomputed_basepoint_g_lm (s_secp256k1_xy, lid, lsz);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   /**
    * loop
@@ -99,7 +95,7 @@ KERNEL_FQ KERNEL_FA void m35910_mxx (KERN_ATTR_VECTOR ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy_lm (x, y, prv_key, s_secp256k1_xy);
+    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
 
     u32 pub_key[16] = { 0 };
 
@@ -198,13 +194,9 @@ KERNEL_FQ KERNEL_FA void m35910_sxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-  // SHMEM: workgroup-shared precomputed basepoint table for w=4 point_mul
-  const u64 lid = get_local_id (0);
-  const u64 lsz = get_local_size (0);
+  secp256k1_w5_t preG;
 
-  LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE];
-
-  set_precomputed_basepoint_g_lm (s_secp256k1_xy, lid, lsz);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   /**
    * loop
@@ -252,7 +244,7 @@ KERNEL_FQ KERNEL_FA void m35910_sxx (KERN_ATTR_VECTOR ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy_lm (x, y, prv_key, s_secp256k1_xy);
+    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
 
     u32 pub_key[16] = { 0 };
 

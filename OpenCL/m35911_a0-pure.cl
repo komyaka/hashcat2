@@ -153,9 +153,9 @@ KERNEL_FQ KERNEL_FA void m35911_mxx (KERN_ATTR_RULES ())
 
   if (gid >= GID_CNT) return;
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -191,7 +191,7 @@ KERNEL_FQ KERNEL_FA void m35911_mxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy (x, y, prv_key, &preG);
+    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
 
     // Step 3: Ethereum uses uncompressed public key (x || y) for Keccak-256
     // Store as big-endian byte words
@@ -244,9 +244,9 @@ KERNEL_FQ KERNEL_FA void m35911_sxx (KERN_ATTR_RULES ())
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -277,7 +277,7 @@ KERNEL_FQ KERNEL_FA void m35911_sxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy (x, y, prv_key, &preG);
+    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
 
     u32 pub_key[16];
 

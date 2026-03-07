@@ -63,13 +63,13 @@ DECLSPEC void reverse_prv_key (PRIVATE_AS u32 *prv_rev, PRIVATE_AS const u32 *pr
 }
 
 DECLSPEC void prv_to_hash160 (PRIVATE_AS u32 *rctx_h, PRIVATE_AS const u32 *prv_key,
-                               SECP256K1_TMPS_TYPE secp256k1_t *preG,
+                               SECP256K1_TMPS_TYPE secp256k1_w5_t *preG,
                                const u32 addr_type)
 {
   u32 x[8];
   u32 y[8];
 
-  point_mul_xy (x, y, prv_key, preG);
+  point_mul_glv_wnaf_w5 (x, y, prv_key, preG);
 
   u32 pub_key[16] = { 0 };
 
@@ -145,9 +145,9 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   const u32 addr_type = salt_bufs[SALT_POS_HOST].salt_buf[0];
 
@@ -235,9 +235,9 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   const u32 addr_type = salt_bufs[SALT_POS_HOST].salt_buf[0];
 

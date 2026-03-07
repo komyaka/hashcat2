@@ -34,9 +34,9 @@ KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_RULES ())
    * base
    */
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -78,7 +78,7 @@ KERNEL_FQ KERNEL_FA void m35900_mxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy (x, y, prv_key, &preG);
+    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
 
     // Step 3: compressed public key (33 bytes)
 
@@ -175,9 +175,9 @@ KERNEL_FQ KERNEL_FA void m35900_sxx (KERN_ATTR_RULES ())
    * base
    */
 
-  secp256k1_t preG;
+  secp256k1_w5_t preG;
 
-  set_precomputed_basepoint_g (&preG);
+  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -212,7 +212,7 @@ KERNEL_FQ KERNEL_FA void m35900_sxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_xy (x, y, prv_key, &preG);
+    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
 
     u32 pub_key[16] = { 0 };
 
