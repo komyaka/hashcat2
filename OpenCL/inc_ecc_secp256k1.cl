@@ -4812,3 +4812,252 @@ DECLSPEC void point_mul_glv_wnaf_w5 (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
   mul_mod (rz2, rz2, rz_j);
   mul_mod (ry, ry_j, rz2);
 }
+
+DECLSPEC void point_add_affine_G (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 *z1)
+{
+  /* Add the generator point G (affine) to the Jacobian point (x1:y1:z1).
+   * G is stored as compile-time constants SECP256K1_G0..G7 (x) and
+   * SECP256K1_G_PRE_COMPUTED_08..15 (y).
+   * This is a thin wrapper around point_add() for use in Group Key Addition:
+   * P_{i+1} = P_i + G.  Typical cost: ~2K GPU cycles vs ~194K for full point_mul. */
+  u32 gx[8];
+  gx[0] = SECP256K1_G0;
+  gx[1] = SECP256K1_G1;
+  gx[2] = SECP256K1_G2;
+  gx[3] = SECP256K1_G3;
+  gx[4] = SECP256K1_G4;
+  gx[5] = SECP256K1_G5;
+  gx[6] = SECP256K1_G6;
+  gx[7] = SECP256K1_G7;
+
+  u32 gy[8];
+  gy[0] = SECP256K1_G_PRE_COMPUTED_08;
+  gy[1] = SECP256K1_G_PRE_COMPUTED_09;
+  gy[2] = SECP256K1_G_PRE_COMPUTED_10;
+  gy[3] = SECP256K1_G_PRE_COMPUTED_11;
+  gy[4] = SECP256K1_G_PRE_COMPUTED_12;
+  gy[5] = SECP256K1_G_PRE_COMPUTED_13;
+  gy[6] = SECP256K1_G_PRE_COMPUTED_14;
+  gy[7] = SECP256K1_G_PRE_COMPUTED_15;
+
+  point_add (x1, y1, z1, gx, gy);
+}
+
+DECLSPEC void point_double_xyzz (PRIVATE_AS u32 *X, PRIVATE_AS u32 *Y,
+                                  PRIVATE_AS u32 *ZZ, PRIVATE_AS u32 *ZZZ)
+{
+  /* XYZZ point doubling for short Weierstrass curves with a=0 (secp256k1).
+   * Formula: dbl-2008-s-1 from https://hyperelliptic.org/EFD/g1p/auto-shortw-xyzz.html
+   * Cost: 1M + 5S + add + 2*2 + 1*3 + 1*4 + 1*8 (cheapest ops not counted).
+   * Saves squarings vs Jacobian: 1M+5S here vs 1M+8S for dbl-2009-l Jacobian. */
+
+  u32 U[8];
+  add_mod (U, Y, Y);             /* U = 2*Y1 */
+
+  u32 V[8];
+  mul_mod (V, U, U);             /* V = U^2 = 4*Y1^2 */
+
+  u32 W[8];
+  mul_mod (W, U, V);             /* W = U*V = 8*Y1^3 */
+
+  u32 S[8];
+  mul_mod (S, X, V);             /* S = X1*V = 4*X1*Y1^2 */
+
+  u32 M[8];
+  mul_mod (M, X, X);             /* X1^2 */
+  u32 M3[8];
+  add_mod (M3, M, M);
+  add_mod (M3, M3, M);           /* M = 3*X1^2 (a=0 so no ZZ term) */
+
+  u32 S2[8];
+  add_mod (S2, S, S);            /* 2*S */
+
+  mul_mod (X, M3, M3);
+  sub_mod (X, X, S2);
+  sub_mod (X, X, S2);            /* X3 = M^2 - 2*S */
+
+  u32 tmp[8];
+  sub_mod (tmp, S, X);
+  mul_mod (tmp, M3, tmp);        /* M3*(S-X3) */
+  u32 WY[8];
+  mul_mod (WY, W, Y);            /* W*Y1 */
+  sub_mod (Y, tmp, WY);          /* Y3 = M*(S-X3) - W*Y1 */
+
+  for (u32 i = 0; i < 8; i++) ZZ[i]  = V[i];   /* ZZ3 = V */
+  for (u32 i = 0; i < 8; i++) ZZZ[i] = W[i];   /* ZZZ3 = W */
+}
+
+DECLSPEC void point_add_mixed_xyzz (PRIVATE_AS u32 *X1, PRIVATE_AS u32 *Y1,
+                                     PRIVATE_AS u32 *ZZ1, PRIVATE_AS u32 *ZZZ1,
+                                     PRIVATE_AS const u32 *x2, PRIVATE_AS const u32 *y2)
+{
+  /* XYZZ mixed addition: XYZZ point + affine point (z2=1, ZZ2=1, ZZZ2=1).
+   * Formula: madd-2008-s from https://hyperelliptic.org/EFD/g1p/auto-shortw-xyzz.html
+   * Cost: 7M + 4S + 9add + 3*2 + 1*4 (cheapest ops not counted). */
+
+  u32 U2[8];
+  mul_mod (U2, x2, ZZ1);         /* U2 = x2*ZZ1 */
+
+  u32 S2[8];
+  mul_mod (S2, y2, ZZZ1);        /* S2 = y2*ZZZ1 */
+
+  u32 P[8];
+  sub_mod (P, U2, X1);           /* P = U2 - X1 */
+
+  u32 PP[8];
+  mul_mod (PP, P, P);            /* PP = P^2 */
+
+  u32 PPP[8];
+  mul_mod (PPP, P, PP);          /* PPP = P*PP */
+
+  u32 Q[8];
+  mul_mod (Q, X1, PP);           /* Q = X1*PP */
+
+  u32 R[8];
+  sub_mod (R, S2, Y1);           /* R = S2 - Y1 */
+
+  u32 Q2[8];
+  add_mod (Q2, Q, Q);            /* 2*Q */
+
+  u32 R2[8];
+  mul_mod (R2, R, R);            /* R^2 */
+  sub_mod (X1, R2, PPP);
+  sub_mod (X1, X1, Q2);          /* X3 = R^2 - PPP - 2*Q */
+
+  u32 tmp[8];
+  sub_mod (tmp, Q, X1);
+  mul_mod (tmp, R, tmp);         /* R*(Q-X3) */
+  u32 Y1PPP[8];
+  mul_mod (Y1PPP, Y1, PPP);      /* Y1*PPP */
+  sub_mod (Y1, tmp, Y1PPP);      /* Y3 = R*(Q-X3) - Y1*PPP */
+
+  mul_mod (ZZ1,  ZZ1,  PP);      /* ZZ3  = ZZ1*PP */
+  mul_mod (ZZZ1, ZZZ1, PPP);     /* ZZZ3 = ZZZ1*PPP */
+}
+
+#ifdef SECP256K1_USE_COMB
+DECLSPEC void point_mul_comb (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
+                               PRIVATE_AS const u32 *k)
+{
+  /* Fixed-base comb scalar multiplication using precomputed table for G.
+   * d=4 (4 rows/teeth), w=64 (64 columns).  The 256-bit scalar k is split
+   * into 4 64-bit sub-scalars k0..k3 (bits 0..63, 64..127, 128..191, 192..255).
+   * Comb table T[i] = (i[0])*G + (i[1])*2^64*G + (i[2])*2^128*G + (i[3])*2^192*G,
+   *   i = 0..15.  T[0] = identity (never accessed in non-trivial scalar).
+   * Algorithm: for col = 63 downto 0:
+   *   R = 2*R
+   *   idx = k0[col] | (k1[col]<<1) | (k2[col]<<2) | (k3[col]<<3)
+   *   if idx != 0: R += T[idx]
+   * Total cost: 63 doublings + up to 64 point additions. */
+
+  /* ---- comb table T[1..15]: (x, y) stored as 16 u32 words per point ---- */
+  /* x words: [0]=low 32 bits .. [7]=high 32 bits; then y words same order  */
+  const u32 comb_table[15][16] =
+  {
+    /* T[1]  = 1*G */
+    { 0x16f81798, 0x59f2815b, 0x2dce28d9, 0x029bfcdb, 0xce870b07, 0x55a06295, 0xf9dcbbac, 0x79be667e,
+      0xfb10d4b8, 0x9c47d08f, 0xa6855419, 0xfd17b448, 0x0e1108a8, 0x5da4fbfc, 0x26a3c465, 0x483ada77 },
+    /* T[2]  = 2^64*G */
+    { 0x42d0e6bd, 0x13b7e0e7, 0xdb0f5e53, 0xf774d163, 0x104d6ecb, 0x82a2147c, 0x243c4e25, 0x3322d401,
+      0x6c28b2a0, 0x24f3a2e9, 0xa2873af6, 0x2805f63e, 0x4ddaf9b7, 0xbfb019bc, 0xe9664ef5, 0x56e70797 },
+    /* T[3]  = G + 2^64*G */
+    { 0x829d122a, 0xdca81127, 0x67e99549, 0x8f17f314, 0x6a8a9e73, 0x9b889085, 0x846dd99d, 0x583fdfd9,
+      0x63c4eac4, 0xf3c7719e, 0xb734b37a, 0xb44685a3, 0x572a47a6, 0x9f92d2d6, 0x2ff57d81, 0xabc6232f },
+    /* T[4]  = 2^128*G */
+    { 0x9ec4c0da, 0x1b7b444c, 0x723ea335, 0xe88c5678, 0x981f162e, 0x9239c1ad, 0xf63b5f33, 0x8f68b9d2,
+      0x501fff82, 0xf23cbf79, 0x95510bfd, 0xbbea2cfe, 0xb6be215d, 0xde1d90c2, 0xba063986, 0x662a9f2d },
+    /* T[5]  = G + 2^128*G */
+    { 0x114cbf09, 0x63c5e885, 0x7be77e3e, 0x2f27ce93, 0xf54a3e33, 0xdaa6d12d, 0x3eff872c, 0x8b300e51,
+      0xb3b10a39, 0x26c6ff28, 0x9aaf7169, 0x08f6a7aa, 0x6b8238ea, 0x446f0d46, 0x7f43c0cc, 0x1cec3067 },
+    /* T[6]  = 2^64*G + 2^128*G */
+    { 0x075e9070, 0xba16ce6a, 0x9b5cfe37, 0xbc26893d, 0x9c510774, 0xe1ddadfe, 0xfe3ae2f4, 0x90922d88,
+      0x5c08824a, 0x653943cc, 0xfce8f4bc, 0x06d74475, 0x533c615d, 0x8d101fa7, 0x742108a9, 0x7b1903f6 },
+    /* T[7]  = G + 2^64*G + 2^128*G */
+    { 0x6ebdc96c, 0x1bcfa45c, 0x1c7584ba, 0xe400bc04, 0x74cf531f, 0x6395e20e, 0xc5131b30, 0x1edd0bb1,
+      0xe358cf9e, 0xa117161b, 0x2724d11c, 0xe490d6f0, 0xee6dd8c9, 0xf75062f6, 0xfba373e4, 0x31e03b2b },
+    /* T[8]  = 2^192*G */
+    { 0x2120e2b3, 0x7f3b58fa, 0x7f47f9aa, 0x7a58fdce, 0x4ce6e521, 0xe7be4ae3, 0x1f51bdba, 0xeaa649f2,
+      0xba5ad93d, 0xd47a5305, 0xf13f7e59, 0x01a6b965, 0x9879aa5a, 0xc69a80f8, 0x5bbbb03a, 0xbe3279ed },
+    /* T[9]  = G + 2^192*G */
+    { 0x27bb4d71, 0xcf291a33, 0x33524832, 0x6caf7d6b, 0x766584ee, 0x6e0ee131, 0xd064c589, 0x160cb0f6,
+      0x17136e8d, 0x9d5de554, 0x1aab720e, 0xe3f2d468, 0xccf75cc2, 0xd1378b49, 0xc4ff16e1, 0x6920c375 },
+    /* T[10] = 2^64*G + 2^192*G */
+    { 0x1a9ee611, 0x3eef9e96, 0x9cc37faf, 0xfe4d7bf3, 0xb321d965, 0x462aa9b3, 0x208736c5, 0x1702da3e,
+      0x3a545ceb, 0xfba57bbf, 0x7ea858f5, 0x6dbcd766, 0x680d92f1, 0x088e897c, 0xbc626c80, 0x468c1fd8 },
+    /* T[11] = G + 2^64*G + 2^192*G */
+    { 0xb188660a, 0xb40f85c7, 0x99bc3c36, 0xc5873c19, 0x7f33b54c, 0x3c7b4541, 0x1f8c9bf8, 0x4cd3a93c,
+      0x33099cb0, 0xf8dce380, 0x2edd2f33, 0x7a167dd6, 0x0ffe35b7, 0x576d8987, 0xc68ace5c, 0xd2de0386 },
+    /* T[12] = 2^128*G + 2^192*G */
+    { 0x6658bb08, 0x9a9e0a72, 0xc589607b, 0xe23c5f2a, 0xf2bfb4c8, 0xa048ca14, 0xc62c2291, 0x4d9a0f89,
+      0x0f827294, 0x427b5f31, 0x9f2c35cd, 0x1ea7a8b5, 0x85a3c00f, 0x95442e56, 0x9b57975a, 0x8cb83121 },
+    /* T[13] = G + 2^128*G + 2^192*G */
+    { 0x51f5cf67, 0x4333f0da, 0xf4f0d3cb, 0x6d3ea47c, 0xa05a831f, 0x442fda14, 0x016d3e81, 0x6a496013,
+      0xe52e0f48, 0xf647318c, 0x4a0d5ff1, 0x5ff3a66e, 0x61199ba8, 0x046ed81a, 0x3e79c23a, 0x578edf08 },
+    /* T[14] = 2^64*G + 2^128*G + 2^192*G */
+    { 0x3ea01ea7, 0xb8f996f8, 0x7497bb15, 0xc0045d33, 0x6205647c, 0xc4749dc9, 0x0efd22c9, 0xd8946054,
+      0x12774ad5, 0x062dcb09, 0x8be06e3a, 0xcb13f310, 0x235de1a9, 0xca281d35, 0x69c3645c, 0xaf8a7412 },
+    /* T[15] = G + 2^64*G + 2^128*G + 2^192*G */
+    { 0xbeb8b1e2, 0x8808ca5f, 0xea0dda76, 0x0262b204, 0xddeb356b, 0xb6fffffc, 0xfbb83870, 0x52de253a,
+      0x8f8d21ea, 0x961f40c0, 0x002f03ed, 0x89686278, 0x38e421ea, 0x0ff834d7, 0xd36fb8db, 0x3a270d6f }
+  };
+
+  /* Initialize accumulator to "infinity" by tracking `initialized` flag. */
+  u32 acc_x[8] = { 0 };
+  u32 acc_y[8] = { 0 };
+  u32 acc_z[8] = { 0 };
+  u32 initialized = 0;
+
+  /* Process 64 columns, high bit first. */
+  for (int col = 63; col >= 0; col--)
+  {
+    /* Double the accumulator. */
+    if (initialized)
+    {
+      point_double (acc_x, acc_y, acc_z);
+    }
+
+    /* Build the 4-bit column index.
+     * k0 = bits  0..63  of k -> k[0], k[1]
+     * k1 = bits 64..127 of k -> k[2], k[3]
+     * k2 = bits128..191 of k -> k[4], k[5]
+     * k3 = bits192..255 of k -> k[6], k[7]  */
+    const u32 word0 = (u32)(col >> 5);   /* which u32 word (0 or 1) within each 64-bit band */
+    const u32 bit0  = (u32)(col & 31);
+
+    const u32 b0 = (k[word0    ] >> bit0) & 1;
+    const u32 b1 = (k[word0 + 2] >> bit0) & 1;
+    const u32 b2 = (k[word0 + 4] >> bit0) & 1;
+    const u32 b3 = (k[word0 + 6] >> bit0) & 1;
+
+    const u32 idx = b0 | (b1 << 1) | (b2 << 2) | (b3 << 3);
+
+    if (idx != 0)
+    {
+      u32 tx[8], ty[8];
+      for (u32 i = 0; i < 8; i++) tx[i] = comb_table[idx - 1][i];
+      for (u32 i = 0; i < 8; i++) ty[i] = comb_table[idx - 1][i + 8];
+
+      if (!initialized)
+      {
+        for (u32 i = 0; i < 8; i++) acc_x[i] = tx[i];
+        for (u32 i = 0; i < 8; i++) acc_y[i] = ty[i];
+        acc_z[0] = 1;
+        for (u32 i = 1; i < 8; i++) acc_z[i] = 0;
+        initialized = 1;
+      }
+      else
+      {
+        point_add (acc_x, acc_y, acc_z, tx, ty);
+      }
+    }
+  }
+
+  /* Convert Jacobian to affine. */
+  inv_mod (acc_z);
+  u32 acc_z2[8];
+  mul_mod (acc_z2, acc_z, acc_z);
+  mul_mod (rx, acc_x, acc_z2);
+  mul_mod (acc_z2, acc_z2, acc_z);
+  mul_mod (ry, acc_y, acc_z2);
+}
+#endif /* SECP256K1_USE_COMB */

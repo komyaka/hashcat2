@@ -210,6 +210,47 @@ DECLSPEC void prv_to_eth_addr (PRIVATE_AS u32 *addr, PRIVATE_AS const u32 *prv_k
   keccak_256_64 (pub_key, addr);
 }
 
+DECLSPEC void prv_to_eth_addr_xy (PRIVATE_AS u32 *addr,
+                                   PRIVATE_AS const u32 *x,
+                                   PRIVATE_AS const u32 *y)
+{
+  /* Compute Ethereum address directly from affine (x, y) coordinates (no point_mul). */
+  u32 pub_key[16];
+
+  pub_key[ 0] = hc_swap32_S (x[7]);
+  pub_key[ 1] = hc_swap32_S (x[6]);
+  pub_key[ 2] = hc_swap32_S (x[5]);
+  pub_key[ 3] = hc_swap32_S (x[4]);
+  pub_key[ 4] = hc_swap32_S (x[3]);
+  pub_key[ 5] = hc_swap32_S (x[2]);
+  pub_key[ 6] = hc_swap32_S (x[1]);
+  pub_key[ 7] = hc_swap32_S (x[0]);
+  pub_key[ 8] = hc_swap32_S (y[7]);
+  pub_key[ 9] = hc_swap32_S (y[6]);
+  pub_key[10] = hc_swap32_S (y[5]);
+  pub_key[11] = hc_swap32_S (y[4]);
+  pub_key[12] = hc_swap32_S (y[3]);
+  pub_key[13] = hc_swap32_S (y[2]);
+  pub_key[14] = hc_swap32_S (y[1]);
+  pub_key[15] = hc_swap32_S (y[0]);
+
+  keccak_256_64 (pub_key, addr);
+}
+
+/* Add 1 to a 256-bit little-endian integer stored as 8 u32 words.
+ * Returns carry (nonzero if overflow, practically never for random keys). */
+DECLSPEC u32 add1_256 (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
+{
+  u64 carry = 1;
+  for (u32 i = 0; i < 8; i++)
+  {
+    carry += (u64)a[i];
+    r[i]   = (u32)carry;
+    carry >>= 32;
+  }
+  return (u32)carry;
+}
+
 KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
@@ -230,6 +271,14 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
   set_precomputed_basepoint_g_w5 (&preG);
 
   u32x w0l = w[0];
+
+  /* Group Key Addition state: Jacobian accumulator and previous key. */
+  u32 gka_x[8]    = { 0 };
+  u32 gka_y[8]    = { 0 };
+  u32 gka_z[8]    = { 0 };
+  u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                      0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+  u32 gka_init    = 0;
 
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos += VECT_SIZE)
   {
@@ -264,9 +313,56 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 
     decode_prv_key (prv_key, wordbuf);
 
+    u32 pub_x[8];
+    u32 pub_y[8];
+
+    /* Detect sequential key: is prv_key == prev_key + 1? */
+    u32 expected[8];
+    add1_256 (expected, prev_key);
+
+    const u32 is_seq =  (prv_key[0] == expected[0]) & (prv_key[1] == expected[1])
+                      & (prv_key[2] == expected[2]) & (prv_key[3] == expected[3])
+                      & (prv_key[4] == expected[4]) & (prv_key[5] == expected[5])
+                      & (prv_key[6] == expected[6]) & (prv_key[7] == expected[7]);
+
+    if (is_seq & gka_init)
+    {
+      /* Incremental: gka_{i+1} = gka_i + G */
+      point_add_affine_G (gka_x, gka_y, gka_z);
+
+      /* Convert Jacobian to affine. */
+      u32 iz[8];
+      for (u32 j = 0; j < 8; j++) iz[j] = gka_z[j];
+      inv_mod (iz);
+      u32 iz2[8];
+      mul_mod (iz2, iz, iz);
+      mul_mod (pub_x, gka_x, iz2);
+      mul_mod (iz2, iz2, iz);
+      mul_mod (pub_y, gka_y, iz2);
+
+      /* Reset GKA state to affine form for next iteration. */
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+    }
+    else
+    {
+      /* Full scalar multiplication (first key or non-sequential jump). */
+      point_mul_glv_wnaf_w5 (pub_x, pub_y, prv_key, &preG);
+
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+      gka_init = 1;
+    }
+
+    for (u32 j = 0; j < 8; j++) prev_key[j] = prv_key[j];
+
     u32 addr[5];
 
-    prv_to_eth_addr (addr, prv_key, &preG);
+    prv_to_eth_addr_xy (addr, pub_x, pub_y);
 
     const u32 r0 = addr[0];
     const u32 r1 = addr[1];
@@ -275,11 +371,15 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 
     COMPARE_M_SCALAR (r0, r1, r2, r3);
 
+    /* Also check reversed key (no GKA shortcut for reversed key). */
     u32 prv_rev[9];
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_eth_addr (addr, prv_rev, &preG);
+    u32 rev_x[8], rev_y[8];
+    point_mul_glv_wnaf_w5 (rev_x, rev_y, prv_rev, &preG);
+
+    prv_to_eth_addr_xy (addr, rev_x, rev_y);
 
     const u32 rr0 = addr[0];
     const u32 rr1 = addr[1];
@@ -319,6 +419,14 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
 
   u32x w0l = w[0];
 
+  /* Group Key Addition state: Jacobian accumulator and previous key. */
+  u32 gka_x[8]    = { 0 };
+  u32 gka_y[8]    = { 0 };
+  u32 gka_z[8]    = { 0 };
+  u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                      0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+  u32 gka_init    = 0;
+
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos += VECT_SIZE)
   {
     const u32x w0r = words_buf_r[il_pos / VECT_SIZE];
@@ -352,9 +460,56 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
 
     decode_prv_key (prv_key, wordbuf);
 
+    u32 pub_x[8];
+    u32 pub_y[8];
+
+    /* Detect sequential key: is prv_key == prev_key + 1? */
+    u32 expected[8];
+    add1_256 (expected, prev_key);
+
+    const u32 is_seq =  (prv_key[0] == expected[0]) & (prv_key[1] == expected[1])
+                      & (prv_key[2] == expected[2]) & (prv_key[3] == expected[3])
+                      & (prv_key[4] == expected[4]) & (prv_key[5] == expected[5])
+                      & (prv_key[6] == expected[6]) & (prv_key[7] == expected[7]);
+
+    if (is_seq & gka_init)
+    {
+      /* Incremental: gka_{i+1} = gka_i + G */
+      point_add_affine_G (gka_x, gka_y, gka_z);
+
+      /* Convert Jacobian to affine. */
+      u32 iz[8];
+      for (u32 j = 0; j < 8; j++) iz[j] = gka_z[j];
+      inv_mod (iz);
+      u32 iz2[8];
+      mul_mod (iz2, iz, iz);
+      mul_mod (pub_x, gka_x, iz2);
+      mul_mod (iz2, iz2, iz);
+      mul_mod (pub_y, gka_y, iz2);
+
+      /* Reset GKA state to affine form for next iteration. */
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+    }
+    else
+    {
+      /* Full scalar multiplication (first key or non-sequential jump). */
+      point_mul_glv_wnaf_w5 (pub_x, pub_y, prv_key, &preG);
+
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+      gka_init = 1;
+    }
+
+    for (u32 j = 0; j < 8; j++) prev_key[j] = prv_key[j];
+
     u32 addr[5];
 
-    prv_to_eth_addr (addr, prv_key, &preG);
+    prv_to_eth_addr_xy (addr, pub_x, pub_y);
 
     const u32 r0 = addr[0];
     const u32 r1 = addr[1];
@@ -363,11 +518,15 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
 
     COMPARE_S_SCALAR (r0, r1, r2, r3);
 
+    /* Also check reversed key (no GKA shortcut for reversed key). */
     u32 prv_rev[9];
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_eth_addr (addr, prv_rev, &preG);
+    u32 rev_x[8], rev_y[8];
+    point_mul_glv_wnaf_w5 (rev_x, rev_y, prv_rev, &preG);
+
+    prv_to_eth_addr_xy (addr, rev_x, rev_y);
 
     const u32 rr0 = addr[0];
     const u32 rr1 = addr[1];

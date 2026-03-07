@@ -130,6 +130,85 @@ DECLSPEC void prv_to_hash160 (PRIVATE_AS u32 *rctx_h, PRIVATE_AS const u32 *prv_
   rctx_h[4] = rctx.h[4];
 }
 
+DECLSPEC void prv_to_hash160_xy (PRIVATE_AS u32 *rctx_h,
+                                  PRIVATE_AS const u32 *x,
+                                  PRIVATE_AS const u32 *y,
+                                  const u32 addr_type)
+{
+  /* Compute hash160 directly from affine (x, y) coordinates (no point_mul). */
+  u32 pub_key[16] = { 0 };
+
+  const u32 type = 0x02 | (y[0] & 1);
+
+  pub_key[8] =               (x[0] << 24);
+  pub_key[7] = (x[0] >>  8) | (x[1] << 24);
+  pub_key[6] = (x[1] >>  8) | (x[2] << 24);
+  pub_key[5] = (x[2] >>  8) | (x[3] << 24);
+  pub_key[4] = (x[3] >>  8) | (x[4] << 24);
+  pub_key[3] = (x[4] >>  8) | (x[5] << 24);
+  pub_key[2] = (x[5] >>  8) | (x[6] << 24);
+  pub_key[1] = (x[6] >>  8) | (x[7] << 24);
+  pub_key[0] = (x[7] >>  8) | (type  << 24);
+
+  sha256_ctx_t ctx;
+
+  sha256_init   (&ctx);
+  sha256_update (&ctx, pub_key, 33);
+  sha256_final  (&ctx);
+
+  u32 tmp[16] = { 0 };
+
+  for (u32 i = 0; i < 8; i++) tmp[i] = ctx.h[i];
+
+  ripemd160_ctx_t rctx;
+
+  ripemd160_init        (&rctx);
+  ripemd160_update_swap (&rctx, tmp, 32);
+  ripemd160_final       (&rctx);
+
+  if (addr_type == 1)
+  {
+    tmp[0] = (rctx.h[0] << 16) | 0x1400u;
+    tmp[1] = (rctx.h[1] << 16) | (rctx.h[0] >> 16);
+    tmp[2] = (rctx.h[2] << 16) | (rctx.h[1] >> 16);
+    tmp[3] = (rctx.h[3] << 16) | (rctx.h[2] >> 16);
+    tmp[4] = (rctx.h[4] << 16) | (rctx.h[3] >> 16);
+    tmp[5] = (rctx.h[4] >> 16);
+
+    for (u32 i = 6; i < 16; i++) tmp[i] = 0;
+
+    sha256_init        (&ctx);
+    sha256_update_swap (&ctx, tmp, 22);
+    sha256_final       (&ctx);
+
+    for (u32 i = 0; i < 8; i++) tmp[i] = ctx.h[i];
+
+    ripemd160_init        (&rctx);
+    ripemd160_update_swap (&rctx, tmp, 32);
+    ripemd160_final       (&rctx);
+  }
+
+  rctx_h[0] = rctx.h[0];
+  rctx_h[1] = rctx.h[1];
+  rctx_h[2] = rctx.h[2];
+  rctx_h[3] = rctx.h[3];
+  rctx_h[4] = rctx.h[4];
+}
+
+/* Add 1 to a 256-bit little-endian integer stored as 8 u32 words.
+ * Returns carry (nonzero if overflow, practically never for random keys). */
+DECLSPEC u32 add1_256 (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
+{
+  u64 carry = 1;
+  for (u32 i = 0; i < 8; i++)
+  {
+    carry += (u64)a[i];
+    r[i]   = (u32)carry;
+    carry >>= 32;
+  }
+  return (u32)carry;
+}
+
 KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
@@ -152,6 +231,14 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_VECTOR ())
   const u32 addr_type = salt_bufs[SALT_POS_HOST].salt_buf[0];
 
   u32x w0l = w[0];
+
+  /* Group Key Addition state: Jacobian accumulator and previous key. */
+  u32 gka_x[8]    = { 0 };
+  u32 gka_y[8]    = { 0 };
+  u32 gka_z[8]    = { 0 };
+  u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                      0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+  u32 gka_init    = 0;
 
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos += VECT_SIZE)
   {
@@ -186,9 +273,56 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_VECTOR ())
 
     decode_prv_key (prv_key, wordbuf);
 
+    u32 pub_x[8];
+    u32 pub_y[8];
+
+    /* Detect sequential key: is prv_key == prev_key + 1? */
+    u32 expected[8];
+    add1_256 (expected, prev_key);
+
+    const u32 is_seq =  (prv_key[0] == expected[0]) & (prv_key[1] == expected[1])
+                      & (prv_key[2] == expected[2]) & (prv_key[3] == expected[3])
+                      & (prv_key[4] == expected[4]) & (prv_key[5] == expected[5])
+                      & (prv_key[6] == expected[6]) & (prv_key[7] == expected[7]);
+
+    if (is_seq & gka_init)
+    {
+      /* Incremental: gka_{i+1} = gka_i + G */
+      point_add_affine_G (gka_x, gka_y, gka_z);
+
+      /* Convert Jacobian to affine. */
+      u32 iz[8];
+      for (u32 j = 0; j < 8; j++) iz[j] = gka_z[j];
+      inv_mod (iz);
+      u32 iz2[8];
+      mul_mod (iz2, iz, iz);
+      mul_mod (pub_x, gka_x, iz2);
+      mul_mod (iz2, iz2, iz);
+      mul_mod (pub_y, gka_y, iz2);
+
+      /* Reset GKA state to affine form for next iteration. */
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+    }
+    else
+    {
+      /* Full scalar multiplication (first key or non-sequential jump). */
+      point_mul_glv_wnaf_w5 (pub_x, pub_y, prv_key, &preG);
+
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+      gka_init = 1;
+    }
+
+    for (u32 j = 0; j < 8; j++) prev_key[j] = prv_key[j];
+
     u32 hash160[5];
 
-    prv_to_hash160 (hash160, prv_key, &preG, addr_type);
+    prv_to_hash160_xy (hash160, pub_x, pub_y, addr_type);
 
     const u32 r0 = hash160[0];
     const u32 r1 = hash160[1];
@@ -197,11 +331,15 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_VECTOR ())
 
     COMPARE_M_SCALAR (r0, r1, r2, r3);
 
+    /* Also check reversed key (no GKA shortcut for reversed key). */
     u32 prv_rev[9];
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_hash160 (hash160, prv_rev, &preG, addr_type);
+    u32 rev_x[8], rev_y[8];
+    point_mul_glv_wnaf_w5 (rev_x, rev_y, prv_rev, &preG);
+
+    prv_to_hash160_xy (hash160, rev_x, rev_y, addr_type);
 
     const u32 rr0 = hash160[0];
     const u32 rr1 = hash160[1];
@@ -243,6 +381,14 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_VECTOR ())
 
   u32x w0l = w[0];
 
+  /* Group Key Addition state: Jacobian accumulator and previous key. */
+  u32 gka_x[8]    = { 0 };
+  u32 gka_y[8]    = { 0 };
+  u32 gka_z[8]    = { 0 };
+  u32 prev_key[8] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                      0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+  u32 gka_init    = 0;
+
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos += VECT_SIZE)
   {
     const u32x w0r = words_buf_r[il_pos / VECT_SIZE];
@@ -276,9 +422,56 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_VECTOR ())
 
     decode_prv_key (prv_key, wordbuf);
 
+    u32 pub_x[8];
+    u32 pub_y[8];
+
+    /* Detect sequential key: is prv_key == prev_key + 1? */
+    u32 expected[8];
+    add1_256 (expected, prev_key);
+
+    const u32 is_seq =  (prv_key[0] == expected[0]) & (prv_key[1] == expected[1])
+                      & (prv_key[2] == expected[2]) & (prv_key[3] == expected[3])
+                      & (prv_key[4] == expected[4]) & (prv_key[5] == expected[5])
+                      & (prv_key[6] == expected[6]) & (prv_key[7] == expected[7]);
+
+    if (is_seq & gka_init)
+    {
+      /* Incremental: gka_{i+1} = gka_i + G */
+      point_add_affine_G (gka_x, gka_y, gka_z);
+
+      /* Convert Jacobian to affine. */
+      u32 iz[8];
+      for (u32 j = 0; j < 8; j++) iz[j] = gka_z[j];
+      inv_mod (iz);
+      u32 iz2[8];
+      mul_mod (iz2, iz, iz);
+      mul_mod (pub_x, gka_x, iz2);
+      mul_mod (iz2, iz2, iz);
+      mul_mod (pub_y, gka_y, iz2);
+
+      /* Reset GKA state to affine form for next iteration. */
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+    }
+    else
+    {
+      /* Full scalar multiplication (first key or non-sequential jump). */
+      point_mul_glv_wnaf_w5 (pub_x, pub_y, prv_key, &preG);
+
+      for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
+      for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
+      gka_z[0] = 1;
+      for (u32 j = 1; j < 8; j++) gka_z[j] = 0;
+      gka_init = 1;
+    }
+
+    for (u32 j = 0; j < 8; j++) prev_key[j] = prv_key[j];
+
     u32 hash160[5];
 
-    prv_to_hash160 (hash160, prv_key, &preG, addr_type);
+    prv_to_hash160_xy (hash160, pub_x, pub_y, addr_type);
 
     const u32 r0 = hash160[0];
     const u32 r1 = hash160[1];
@@ -287,11 +480,15 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_VECTOR ())
 
     COMPARE_S_SCALAR (r0, r1, r2, r3);
 
+    /* Also check reversed key (no GKA shortcut for reversed key). */
     u32 prv_rev[9];
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_hash160 (hash160, prv_rev, &preG, addr_type);
+    u32 rev_x[8], rev_y[8];
+    point_mul_glv_wnaf_w5 (rev_x, rev_y, prv_rev, &preG);
+
+    prv_to_hash160_xy (hash160, rev_x, rev_y, addr_type);
 
     const u32 rr0 = hash160[0];
     const u32 rr1 = hash160[1];
