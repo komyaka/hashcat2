@@ -3,6 +3,25 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
+PHASE: Phase-4-InvMod
+TIMESTAMP: 2026-03-07T13:50:00Z
+DETAILS: Implemented Phase 4 inv_mod addition-chain optimisation.
+  - inv_mod_chain(): new addition-chain function (255 sqr + 15 mul) in OpenCL/inc_ecc_secp256k1.cl
+  - inv_mod(): replaced with thin wrapper around inv_mod_chain() (same in-place API)
+  - inv_mod_generic(): old Fermat square-and-multiply kept as fallback
+  - batch_inv_mod() in point_get_coords(): already integrated (verified, no change needed)
+  - Python: inv_mod_chain() reference implementation added to test_regression_libsecp256k1.py
+  - Python: TestInvModChain class with 22 test methods (edge cases + 350+ subtest vectors)
+CHANGES:
+  - OpenCL/inc_ecc_secp256k1.cl: inv_mod_chain() added, inv_mod() now uses chain, inv_mod_generic() kept
+  - Python/test_regression_libsecp256k1.py: inv_mod_chain() reference + TestInvModChain tests
+ESTIMATED_SPEEDUP: ~60% fewer mul_mod calls in inv_mod → ~30-50% faster inv_mod → ~7-12% faster point_mul
+TEST_RESULTS: 401/401 Python tests pass (python3 -m unittest discover -s Python/ -p "test_*.py")
+```
+
+```
+STATUS: VERIFIED
+AGENT: coder
 PHASE: Phase-2-FieldArithmetic
 TIMESTAMP: 2026-03-07T12:37:01Z
 DETAILS: Implemented Phase 2 field arithmetic optimizations in OpenCL/inc_ecc_secp256k1.cl:

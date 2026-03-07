@@ -1370,71 +1370,189 @@ DECLSPEC void sqrt_mod (PRIVATE_AS u32 *r)
 
 // (inverse (a, p) * a) % p == 1 (or think of a * a^-1 = a / a = 1)
 
+/*
+ * Addition-chain inversion for secp256k1: computes r = a^(p-2) mod p.
+ *
+ * Uses the same addition chain as bitcoin-core/secp256k1 (src/field_impl.h,
+ * secp256k1_fe_inv).  Exploits the long runs of 1-bits in p-2 by
+ * pre-computing a^(2^k - 1) for several k values and then assembling the
+ * full exponent from those blocks.
+ *
+ *   p-2 = FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
+ *
+ * Cost: 255 sqr_mod + 15 mul_mod  (vs. 256 sqr + ~128 mul for generic FLT)
+ * Result is written to r[]; a[] is not modified.
+ */
+DECLSPEC void inv_mod_chain (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
+{
+  u32 x2[8], x3[8], x6[8], x9[8], x11[8], x22[8];
+  u32 x44[8], x88[8], x176[8], x220[8], x223[8], t[8];
+
+  /* x2 = a^(2^2 - 1) = a^3 */
+  sqr_mod (x2, a);                        /* a^2          (1 sqr) */
+  mul_mod (x2, x2, a);                    /* a^3          (1 mul) */
+
+  /* x3 = a^(2^3 - 1) = a^7 */
+  sqr_mod (x3, x2);                       /* a^6          (1 sqr) */
+  mul_mod (x3, x3, a);                    /* a^7          (1 mul) */
+
+  /* x6 = a^(2^6 - 1) = a^63 */
+  sqr_mod (x6, x3);                       /* a^14 */
+  sqr_mod (x6, x6);                       /* a^28 */
+  sqr_mod (x6, x6);                       /* a^56         (3 sqr) */
+  mul_mod (x6, x6, x3);                   /* a^63         (1 mul) */
+
+  /* x9 = a^(2^9 - 1) = a^511 */
+  sqr_mod (x9, x6);                       /* a^126 */
+  sqr_mod (x9, x9);                       /* a^252 */
+  sqr_mod (x9, x9);                       /* a^504        (3 sqr) */
+  mul_mod (x9, x9, x3);                   /* a^511        (1 mul) */
+
+  /* x11 = a^(2^11 - 1) = a^2047 */
+  sqr_mod (x11, x9);                      /* a^1022 */
+  sqr_mod (x11, x11);                     /* a^2044       (2 sqr) */
+  mul_mod (x11, x11, x2);                 /* a^2047       (1 mul) */
+
+  /* x22 = a^(2^22 - 1) */
+  sqr_mod (x22, x11);
+  #pragma unroll 10
+  for (int i = 1; i < 11; i++) sqr_mod (x22, x22);  /* (11 sqr) */
+  mul_mod (x22, x22, x11);               /*             (1 mul) */
+
+  /* x44 = a^(2^44 - 1) */
+  sqr_mod (x44, x22);
+  #pragma unroll 21
+  for (int i = 1; i < 22; i++) sqr_mod (x44, x44);  /* (22 sqr) */
+  mul_mod (x44, x44, x22);              /*             (1 mul) */
+
+  /* x88 = a^(2^88 - 1) */
+  sqr_mod (x88, x44);
+  #pragma unroll 43
+  for (int i = 1; i < 44; i++) sqr_mod (x88, x88);  /* (44 sqr) */
+  mul_mod (x88, x88, x44);             /*             (1 mul) */
+
+  /* x176 = a^(2^176 - 1) */
+  sqr_mod (x176, x88);
+  #pragma unroll 87
+  for (int i = 1; i < 88; i++) sqr_mod (x176, x176); /* (88 sqr) */
+  mul_mod (x176, x176, x88);           /*             (1 mul) */
+
+  /* x220 = a^(2^220 - 1) */
+  sqr_mod (x220, x176);
+  #pragma unroll 43
+  for (int i = 1; i < 44; i++) sqr_mod (x220, x220); /* (44 sqr) */
+  mul_mod (x220, x220, x44);           /*             (1 mul) */
+
+  /* x223 = a^(2^223 - 1) */
+  sqr_mod (x223, x220);
+  sqr_mod (x223, x223);
+  sqr_mod (x223, x223);                /* (3 sqr) */
+  mul_mod (x223, x223, x3);           /*             (1 mul) */
+
+  /*
+   * Final assembly — encode the tail bits of p-2 after bit 223.
+   *
+   * p-2 = 2^256 - 2^32 - 979
+   *     = (2^223-1)*2^33 + 2^32 + (2^22-1)*2^11 + ... (tail FC2D)
+   *
+   * After x223 we encode the remaining exponent via the sequence below,
+   * which is derived from the binary pattern of the low 33 bits:
+   *   bits 255..223 : (2^223-1) already handled by x223
+   *   bit  32       : 0   → one zero in 0xFFFFFFFE limb
+   *   bits 31..0    : FC2D = 1111_1100_0000_0000_0010_1101
+   *
+   * Squaring/multiply sequence (matches libsecp256k1 secp256k1_fe_inv):
+   *   sqr×23, mul(x22)  → covers bits 255..233 from x223 + 22-bit block
+   *   sqr×5,  mul(a)    → bit pattern ...00001
+   *   sqr×3,  mul(x2)   → bit pattern ...011
+   *   sqr×2,  mul(a)    → final two bits ...01
+   *
+   * Total for this section: 23+5+3+2 = 33 sqr + 4 mul
+   * Grand total: 255 sqr + 15 mul
+   */
+  sqr_mod (t, x223);
+  #pragma unroll 22
+  for (int i = 1; i < 23; i++) sqr_mod (t, t);   /* (23 sqr) */
+  mul_mod (t, t, x22);                             /*           (1 mul) */
+
+  #pragma unroll 5
+  for (int i = 0; i < 5; i++) sqr_mod (t, t);     /* (5 sqr)  */
+  mul_mod (t, t, a);                               /*           (1 mul) */
+
+  sqr_mod (t, t);
+  sqr_mod (t, t);
+  sqr_mod (t, t);                                  /* (3 sqr)  */
+  mul_mod (t, t, x2);                              /*           (1 mul) */
+
+  sqr_mod (t, t);
+  sqr_mod (t, t);                                  /* (2 sqr)  */
+  mul_mod (r, t, a);                               /*           (1 mul) */
+}
+
+/*
+ * Optimised modular inverse using the addition chain above.
+ * In-place: computes a = a^(p-2) mod p.
+ * Cost: 255 sqr_mod + 15 mul_mod.
+ */
 DECLSPEC void inv_mod (PRIVATE_AS u32 *a)
+{
+  u32 result[8];
+  inv_mod_chain (result, a);
+  a[0] = result[0];
+  a[1] = result[1];
+  a[2] = result[2];
+  a[3] = result[3];
+  a[4] = result[4];
+  a[5] = result[5];
+  a[6] = result[6];
+  a[7] = result[7];
+}
+
+/*
+ * Generic Fermat inverse (fallback / reference).
+ * Computes a = a^(p-2) mod p via 256-iteration square-and-multiply.
+ * In-place.  Kept for correctness comparison.
+ * Cost: 255 sqr_mod + ~128 mul_mod (average).
+ */
+DECLSPEC void inv_mod_generic (PRIVATE_AS u32 *a)
 {
   /*
    * Fermat's Little Theorem: a^(p-1) ≡ 1 (mod p) for prime p
    * Therefore: a^(-1) ≡ a^(p-2) (mod p)
-   * 
-   * For secp256k1, p-2 = FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
-   * 
-   * This implementation uses a simple square-and-multiply algorithm with NO branches
-   * in the main loop, making it GPU-friendly. All iterations are executed regardless
-   * of bit values, using conditional multiplication.
    *
-   * Total: 255 squarings + up to 255 multiplications (worst case)
-   * Actual: 255 squarings + ~128 multiplications (average)
+   * p-2 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
+   *
+   * All 256 iterations always execute (constant-time, GPU-friendly).
    */
-
-  // p-2 in 32-bit limbs (secp256k1 prime minus 2)
-  // p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
-  // p-2 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
   u32 exp[8];
-  exp[0] = SECP256K1_P0 - 2; // 0xFFFFFC2F - 2 = 0xFFFFFC2D (no underflow)
-  exp[1] = SECP256K1_P1;      // 0xFFFFFFFE  
-  exp[2] = SECP256K1_P2;      // 0xFFFFFFFF
-  exp[3] = SECP256K1_P3;      // 0xFFFFFFFF
-  exp[4] = SECP256K1_P4;      // 0xFFFFFFFF
-  exp[5] = SECP256K1_P5;      // 0xFFFFFFFF
-  exp[6] = SECP256K1_P6;      // 0xFFFFFFFF
-  exp[7] = SECP256K1_P7;      // 0xFFFFFFFF
+  exp[0] = SECP256K1_P0 - 2; /* 0xFFFFFC2F - 2 = 0xFFFFFC2D */
+  exp[1] = SECP256K1_P1;     /* 0xFFFFFFFE */
+  exp[2] = SECP256K1_P2;     /* 0xFFFFFFFF */
+  exp[3] = SECP256K1_P3;     /* 0xFFFFFFFF */
+  exp[4] = SECP256K1_P4;     /* 0xFFFFFFFF */
+  exp[5] = SECP256K1_P5;     /* 0xFFFFFFFF */
+  exp[6] = SECP256K1_P6;     /* 0xFFFFFFFF */
+  exp[7] = SECP256K1_P7;     /* 0xFFFFFFFF */
 
-  // Save input
   u32 base[8];
-  base[0] = a[0];
-  base[1] = a[1];
-  base[2] = a[2];
-  base[3] = a[3];
-  base[4] = a[4];
-  base[5] = a[5];
-  base[6] = a[6];
-  base[7] = a[7];
+  base[0] = a[0]; base[1] = a[1]; base[2] = a[2]; base[3] = a[3];
+  base[4] = a[4]; base[5] = a[5]; base[6] = a[6]; base[7] = a[7];
 
-  // Result accumulator, initialized to 1
   u32 result[8] = { 0 };
   result[0] = 1;
 
-  // Temporary for multiplication result
   u32 temp[8];
 
-  // Process all 256 bits (from bit 0 to bit 255)
-  // Using constant-time approach: always compute, conditionally use result
   #pragma unroll 16
   for (u32 bit_idx = 0; bit_idx < 256; bit_idx++)
   {
-    // Check if this bit is set in the exponent
-    u32 limb_idx = bit_idx >> 5;        // bit_idx / 32
-    u32 bit_pos = bit_idx & 0x1f;       // bit_idx % 32
-    u32 bit_set = (exp[limb_idx] >> bit_pos) & 1;  // bit_set ∈ {0, 1}
+    u32 limb_idx = bit_idx >> 5;
+    u32 bit_pos  = bit_idx & 0x1f;
+    u32 bit_set  = (exp[limb_idx] >> bit_pos) & 1;
 
-    // Conditionally multiply: if bit is set, multiply result by base
-    // We always do the multiplication, but only update result if bit_set == 1
-    mul_mod(temp, result, base);
-    
-    // Constant-time conditional move: result = bit_set ? temp : result
-    // Using bitwise mask to avoid branches (GPU-friendly)
-    // Since bit_set ∈ {0, 1}, negation produces 0x00000000 or 0xFFFFFFFF
-    u32 mask = -(bit_set);  // Two's complement: -0 = 0x00000000, -1 = 0xFFFFFFFF
+    mul_mod (temp, result, base);
+
+    u32 mask = -(bit_set);
     result[0] = (temp[0] & mask) | (result[0] & ~mask);
     result[1] = (temp[1] & mask) | (result[1] & ~mask);
     result[2] = (temp[2] & mask) | (result[2] & ~mask);
@@ -1444,19 +1562,11 @@ DECLSPEC void inv_mod (PRIVATE_AS u32 *a)
     result[6] = (temp[6] & mask) | (result[6] & ~mask);
     result[7] = (temp[7] & mask) | (result[7] & ~mask);
 
-    // Square base for next iteration (except on last iteration, but we do it anyway for constant time)
-    sqr_mod(base, base);
+    sqr_mod (base, base);
   }
 
-  // Copy result back to input
-  a[0] = result[0];
-  a[1] = result[1];
-  a[2] = result[2];
-  a[3] = result[3];
-  a[4] = result[4];
-  a[5] = result[5];
-  a[6] = result[6];
-  a[7] = result[7];
+  a[0] = result[0]; a[1] = result[1]; a[2] = result[2]; a[3] = result[3];
+  a[4] = result[4]; a[5] = result[5]; a[6] = result[6]; a[7] = result[7];
 }
 
 /*
