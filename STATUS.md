@@ -3,15 +3,18 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: implementation — Task 5: SHMEM/LDS Memory Optimizations
-TIMESTAMP: 2026-03-07T10:11:54Z
-DETAILS: SECP256K1_USE_SHMEM feature flag, SECP256K1_SHMEM_SIZE=96,
-  SECP256K1_W5_SHMEM_SIZE=192 added to header; 4 new LOCAL_AS functions:
-  set_precomputed_basepoint_g_lm(), point_mul_xy_lm(),
-  set_precomputed_basepoint_g_w5_lm(), point_mul_wnaf_w5_lm() implemented;
-  m35910_a0/a1/a3-pure.cl updated to use workgroup-shared table via
-  LOCAL_VK u32 s_secp256k1_xy[SECP256K1_SHMEM_SIZE] + SYNC_THREADS();
-  Python/test_shmem.py created with 56 tests; 207 total tests pass.
+PHASE: implementation — Task 6: Profiling & Benchmarking
+TIMESTAMP: 2026-03-07T10:50:00Z
+DETAILS: Python/bench_secp256k1.py — CPU reference benchmarks for mul_mod,
+  sqr_mod, add_mod, sub_mod, inv_mod, batch_inv_mod, point_double, point_add,
+  point_mul (standard / GLV / wNAF w=5) with --quick / --log CLI flags;
+  Python/test_regression_libsecp256k1.py — 31 regression tests against
+  libsecp256k1 known vectors (k=1..7, n*G=∞, GLV consistency, wNAF consistency,
+  cross-mode consistency for 50 random scalars);
+  docs/PERF_LOG.md — per-commit performance log template + first entry;
+  docs/PROFILING_GUIDE.md — Nsight Compute / rocprof usage, target metrics,
+  function-level targets, hashrate comparison methodology.
+  All 238 Python tests pass (207 existing + 31 new).
 ```
 
 ## IMPLEMENTATION LOG
@@ -393,3 +396,56 @@ DETAILS: All 9 acceptance criteria met. 207 tests pass (56 new + 151 existing). 
 - [x] `OpenCL/m35910_a3-pure.cl` — both kernels use SHMEM path
 - [x] `Python/test_shmem.py` created with 56 tests (all passing)
 - [x] 207 total Python tests pass (151 existing + 56 new)
+
+---
+
+## IMPLEMENTATION — Task 6: Profiling & Benchmarking
+
+### Changes Made
+| File | Change Type | Description |
+|---|---|---|
+| `Python/bench_secp256k1.py` | created | CPU reference benchmarks: mul_mod, sqr_mod, add_mod, sub_mod, inv_mod, batch_inv_mod (sizes 1–64), point_double, point_add, point_mul (standard / GLV / wNAF w=5); --quick and --log CLI flags |
+| `Python/test_regression_libsecp256k1.py` | created | 31 regression tests: libsecp256k1 known vectors (k=1..7·G, n·G=∞), GLV consistency (known + 30 random scalars), wNAF consistency (known + 30 random scalars), cross-mode consistency (50 random scalars) |
+| `docs/PERF_LOG.md` | created | Per-commit performance log with column definitions, first bench entry, comparison baseline table |
+| `docs/PROFILING_GUIDE.md` | created | Nsight Compute and rocprof commands, target metrics per function, Python bench usage, regression test usage, hashrate comparison methodology |
+| `STATUS.md` | modified | Updated with Task 6 results |
+
+### Tests Added
+| Test file | Test count | Covers |
+|---|---|---|
+| `Python/test_regression_libsecp256k1.py` | 31 | libsecp256k1 vectors, GLV regression, wNAF regression, cross-mode consistency |
+
+### Test Results
+```
+Ran 238 tests in 13.815s
+OK
+(207 existing + 31 new)
+```
+
+### Acceptance Criteria Status
+- [x] bench_secp256k1.py benchmarks mul_mod, point_mul, batch_inv in all modes — PASSED
+- [x] test_regression_libsecp256k1.py with libsecp256k1 known vectors (k=1..7·G) — PASSED
+- [x] GLV regression: point_mul_glv matches standard for known + 30 random scalars — PASSED
+- [x] wNAF regression: point_mul_wnaf_w5 matches standard for known + 30 random scalars — PASSED
+- [x] Cross-mode consistency: all three modes agree for 50 random scalars — PASSED
+- [x] docs/PERF_LOG.md with per-commit table and first entry — PASSED
+- [x] docs/PROFILING_GUIDE.md with Nsight Compute / rocprof commands — PASSED
+- [x] All 238 Python tests pass — PASSED
+
+### Phase 6 — Profiling & Benchmarking (Complete)
+- [x] `Python/bench_secp256k1.py` — CPU reference benchmarks for all modes
+- [x] `Python/test_regression_libsecp256k1.py` — 31 regression tests vs libsecp256k1
+- [x] `docs/PERF_LOG.md` — per-commit perf log (first entry recorded)
+- [x] `docs/PROFILING_GUIDE.md` — Nsight Compute / rocprof profiling guide
+
+### Implementation Status
+```
+STATUS: VERIFIED
+AGENT: coder
+PHASE: implementation — Task 6
+TIMESTAMP: 2026-03-07T10:50:00Z
+DETAILS: bench_secp256k1.py + test_regression_libsecp256k1.py (31 tests) + PERF_LOG.md +
+  PROFILING_GUIDE.md all created. All 238 Python tests pass. Bugs fixed:
+  point_mul left-to-right ordering (reversed → non-reversed);
+  _glv_decompose >> 384 and correct formula (matching libsecp256k1).
+```
