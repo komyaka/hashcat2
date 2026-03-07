@@ -92,6 +92,90 @@ def inv_mod(a):
     return pow(a, P - 2, P)
 
 
+def inv_mod_chain(a):
+    """
+    Modular inverse using the addition chain for secp256k1 p-2.
+
+    Matches the optimised OpenCL inv_mod_chain() in inc_ecc_secp256k1.cl.
+    Derived from bitcoin-core/secp256k1 src/field_impl.h secp256k1_fe_inv.
+
+    Cost: 255 sqr_mod + 15 mul_mod
+    (vs. 256 sqr + ~128 mul for the generic Fermat square-and-multiply).
+
+    p-2 = FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2D
+    """
+    x2 = mul_mod(sqr_mod(a), a)           # a^(2^2 - 1) = a^3
+    x3 = mul_mod(sqr_mod(x2), a)          # a^(2^3 - 1) = a^7
+
+    x6 = x3
+    for _ in range(3):
+        x6 = sqr_mod(x6)
+    x6 = mul_mod(x6, x3)                  # a^(2^6 - 1) = a^63
+
+    x9 = x6
+    for _ in range(3):
+        x9 = sqr_mod(x9)
+    x9 = mul_mod(x9, x3)                  # a^(2^9 - 1) = a^511
+
+    x11 = x9
+    for _ in range(2):
+        x11 = sqr_mod(x11)
+    x11 = mul_mod(x11, x2)                # a^(2^11 - 1) = a^2047
+
+    x22 = x11
+    for _ in range(11):
+        x22 = sqr_mod(x22)
+    x22 = mul_mod(x22, x11)               # a^(2^22 - 1)
+
+    x44 = x22
+    for _ in range(22):
+        x44 = sqr_mod(x44)
+    x44 = mul_mod(x44, x22)               # a^(2^44 - 1)
+
+    x88 = x44
+    for _ in range(44):
+        x88 = sqr_mod(x88)
+    x88 = mul_mod(x88, x44)               # a^(2^88 - 1)
+
+    x176 = x88
+    for _ in range(88):
+        x176 = sqr_mod(x176)
+    x176 = mul_mod(x176, x88)             # a^(2^176 - 1)
+
+    x220 = x176
+    for _ in range(44):
+        x220 = sqr_mod(x220)
+    x220 = mul_mod(x220, x44)             # a^(2^220 - 1)
+
+    x223 = x220
+    for _ in range(3):
+        x223 = sqr_mod(x223)
+    x223 = mul_mod(x223, x3)              # a^(2^223 - 1)
+
+    # Final assembly — encode the tail bits of p-2 after bit 223.
+    # p-2 = 2^256 - 2^32 - 979
+    #     = (2^223-1)*2^33 + 2^32 + tail(FC2D)
+    # Bit sequence after x223: sqr×23 mul(x22) sqr×5 mul(a) sqr×3 mul(x2) sqr×2 mul(a)
+    t = x223
+    for _ in range(23):
+        t = sqr_mod(t)
+    t = mul_mod(t, x22)
+
+    for _ in range(5):
+        t = sqr_mod(t)
+    t = mul_mod(t, a)
+
+    for _ in range(3):
+        t = sqr_mod(t)
+    t = mul_mod(t, x2)
+
+    for _ in range(2):
+        t = sqr_mod(t)
+    t = mul_mod(t, a)
+
+    return t
+
+
 def batch_inv_mod(arr):
     n = len(arr)
     if n == 0:
@@ -1233,6 +1317,190 @@ class TestGLVwNAF(unittest.TestCase):
             with self.subTest(i=i):
                 self.assertEqual(glv_x, wnaf_x)
                 self.assertEqual(glv_y, wnaf_y)
+
+
+class TestInvModChain(unittest.TestCase):
+    """
+    Tests for inv_mod_chain() — addition-chain inversion for secp256k1 p-2.
+
+    Mirrors the optimised OpenCL inv_mod_chain() in inc_ecc_secp256k1.cl.
+    Reference: bitcoin-core/secp256k1 src/field_impl.h (secp256k1_fe_inv).
+    Cost: 255 sqr_mod + 15 mul_mod.
+    """
+
+    # ------------------------------------------------------------------ #
+    # Fixed (deterministic) edge cases                                     #
+    # ------------------------------------------------------------------ #
+
+    def test_inv_chain_one(self):
+        """inv_mod_chain(1) == 1"""
+        self.assertEqual(inv_mod_chain(1), 1)
+
+    def test_inv_chain_p_minus_1(self):
+        """inv_mod_chain(p-1) == p-1  (self-inverse)"""
+        self.assertEqual(inv_mod_chain(P - 1), P - 1)
+
+    def test_inv_chain_two(self):
+        """2 * inv_mod_chain(2) == 1 mod p"""
+        self.assertEqual(mul_mod(2, inv_mod_chain(2)), 1)
+
+    def test_inv_chain_three(self):
+        """3 * inv_mod_chain(3) == 1 mod p"""
+        self.assertEqual(mul_mod(3, inv_mod_chain(3)), 1)
+
+    def test_inv_chain_generator_x(self):
+        """Gx * inv_mod_chain(Gx) == 1 mod p"""
+        self.assertEqual(mul_mod(Gx, inv_mod_chain(Gx)), 1)
+
+    def test_inv_chain_generator_y(self):
+        """Gy * inv_mod_chain(Gy) == 1 mod p"""
+        self.assertEqual(mul_mod(Gy, inv_mod_chain(Gy)), 1)
+
+    def test_inv_chain_secp256k1_known_vector_1(self):
+        """inv_mod_chain matches known vector: inv(7) == pow(7, p-2, p)"""
+        a = 7
+        self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_inv_chain_secp256k1_known_vector_2(self):
+        """inv_mod_chain matches known vector: a = 0xdeadbeef"""
+        a = 0xDEADBEEF
+        self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_inv_chain_secp256k1_known_vector_3(self):
+        """inv_mod_chain matches known vector: a = N (curve order)"""
+        # N mod p != 0, so this is a valid field element
+        a = N % P
+        self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_inv_chain_small_values(self):
+        """inv_mod_chain agrees with Fermat for a = 1..64"""
+        for a in range(1, 65):
+            with self.subTest(a=a):
+                self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_inv_chain_power_of_two(self):
+        """inv_mod_chain agrees with Fermat for powers of two 2^0..2^63"""
+        for k in range(64):
+            a = 1 << k
+            with self.subTest(k=k):
+                self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_inv_chain_p_minus_small(self):
+        """inv_mod_chain agrees with Fermat for p-k, k=1..32"""
+        for k in range(1, 33):
+            a = P - k
+            with self.subTest(k=k):
+                self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_inv_chain_inverse_property_fixed(self):
+        """a * inv_mod_chain(a) == 1 for fixed test vectors"""
+        vectors = [
+            2, 3, 5, 7, 11, 13, 17, 19, 23, 97,
+            0xDEADBEEF, 0xCAFEBABE, Gx, Gy,
+            P - 2, P - 3, P - 100,
+        ]
+        for a in vectors:
+            with self.subTest(a=hex(a)):
+                self.assertEqual(mul_mod(a, inv_mod_chain(a)), 1)
+
+    def test_inv_chain_idempotent(self):
+        """inv(inv(a)) == a for fixed test vectors"""
+        for a in [2, 7, Gx, P - 1]:
+            with self.subTest(a=hex(a)):
+                self.assertEqual(inv_mod_chain(inv_mod_chain(a)), a)
+
+    # ------------------------------------------------------------------ #
+    # Randomised tests (deterministic seed for reproducibility)            #
+    # ------------------------------------------------------------------ #
+
+    def test_chain_equals_fermat_100(self):
+        """Addition chain must equal Fermat inv for 100 random values (seed 0)."""
+        import random
+        rng = random.Random(0)
+        for i in range(100):
+            a = rng.randrange(1, P)
+            with self.subTest(i=i):
+                self.assertEqual(inv_mod_chain(a), inv_mod(a),
+                                 f"Mismatch for a={hex(a)}")
+
+    def test_chain_inverse_property_100(self):
+        """a * inv_mod_chain(a) == 1 for 100 random values (seed 1)."""
+        import random
+        rng = random.Random(1)
+        for i in range(100):
+            a = rng.randrange(1, P)
+            with self.subTest(i=i):
+                self.assertEqual(mul_mod(a, inv_mod_chain(a)), 1,
+                                 f"a * inv(a) != 1 for a={hex(a)}")
+
+    def test_chain_equals_fermat_random_seed2(self):
+        """Addition chain must equal Fermat inv for 50 random values (seed 2)."""
+        import random
+        rng = random.Random(2)
+        for i in range(50):
+            a = rng.randrange(1, P)
+            with self.subTest(i=i):
+                self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_chain_equals_fermat_random_seed3(self):
+        """Addition chain must equal Fermat inv for 50 random values (seed 3)."""
+        import random
+        rng = random.Random(3)
+        for i in range(50):
+            a = rng.randrange(1, P)
+            with self.subTest(i=i):
+                self.assertEqual(inv_mod_chain(a), inv_mod(a))
+
+    def test_chain_inverse_property_random_seed4(self):
+        """a * inv_mod_chain(a) == 1 for 50 random values (seed 4)."""
+        import random
+        rng = random.Random(4)
+        for i in range(50):
+            a = rng.randrange(1, P)
+            with self.subTest(i=i):
+                self.assertEqual(mul_mod(a, inv_mod_chain(a)), 1)
+
+    def test_chain_idempotent_random(self):
+        """inv(inv(a)) == a for 20 random values."""
+        import random
+        rng = random.Random(42)
+        for i in range(20):
+            a = rng.randrange(1, P)
+            with self.subTest(i=i):
+                self.assertEqual(inv_mod_chain(inv_mod_chain(a)), a)
+
+    def test_chain_multiplicative_identity(self):
+        """inv(a*b) == inv(a) * inv(b) for 20 random pairs."""
+        import random
+        rng = random.Random(7)
+        for i in range(20):
+            a = rng.randrange(1, P)
+            b = rng.randrange(1, P)
+            with self.subTest(i=i):
+                lhs = inv_mod_chain(mul_mod(a, b))
+                rhs = mul_mod(inv_mod_chain(a), inv_mod_chain(b))
+                self.assertEqual(lhs, rhs)
+
+    # ------------------------------------------------------------------ #
+    # Cross-validation: chain vs. standard Fermat for known secp256k1 pts  #
+    # ------------------------------------------------------------------ #
+
+    def test_chain_consistency_with_point_ops(self):
+        """
+        inv_mod_chain and Fermat inv agree on the Z-coordinates produced by
+        point operations on the generator (a realistic workload).
+        """
+        # 3G Z-coordinate from projective add
+        Rx, Ry, Rz = Gx, Gy, 1
+        # 2G (projective)
+        lam = mul_mod(3, mul_mod(Gx, Gx))
+        inv2y = inv_mod(mul_mod(2, Gy))
+        lam = mul_mod(lam, inv2y)
+        x2g = sub_mod(mul_mod(lam, lam), add_mod(Gx, Gx))
+        y2g = sub_mod(mul_mod(lam, sub_mod(Gx, x2g)), Gy)
+        # Check inv_mod_chain on a non-trivial field element (y2g)
+        self.assertEqual(inv_mod_chain(y2g), inv_mod(y2g))
+        self.assertEqual(mul_mod(y2g, inv_mod_chain(y2g)), 1)
 
 
 if __name__ == "__main__":
