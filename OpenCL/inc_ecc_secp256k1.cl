@@ -3259,3 +3259,403 @@ DECLSPEC void set_precomputed_basepoint_g (PRIVATE_AS secp256k1_t *r)
   r->xy[94] = SECP256K1_G_PRE_COMPUTED_94;
   r->xy[95] = SECP256K1_G_PRE_COMPUTED_95;
 }
+
+/*
+ * Initialize the w=5 precomputed basepoint table (8 odd multiples: 1G..15G).
+ * First 96 words are identical to the w=4 table (1G, 3G, 5G, 7G).
+ * The next 96 words add 9G, 11G, 13G, 15G.
+ */
+DECLSPEC void set_precomputed_basepoint_g_w5 (PRIVATE_AS secp256k1_w5_t *r)
+{
+  // 1G, 3G, 5G, 7G (same as w=4 table)
+  r->xy[0]  = SECP256K1_G_PRE_COMPUTED_00;
+  r->xy[1]  = SECP256K1_G_PRE_COMPUTED_01;
+  r->xy[2]  = SECP256K1_G_PRE_COMPUTED_02;
+  r->xy[3]  = SECP256K1_G_PRE_COMPUTED_03;
+  r->xy[4]  = SECP256K1_G_PRE_COMPUTED_04;
+  r->xy[5]  = SECP256K1_G_PRE_COMPUTED_05;
+  r->xy[6]  = SECP256K1_G_PRE_COMPUTED_06;
+  r->xy[7]  = SECP256K1_G_PRE_COMPUTED_07;
+  r->xy[8]  = SECP256K1_G_PRE_COMPUTED_08;
+  r->xy[9]  = SECP256K1_G_PRE_COMPUTED_09;
+  r->xy[10] = SECP256K1_G_PRE_COMPUTED_10;
+  r->xy[11] = SECP256K1_G_PRE_COMPUTED_11;
+  r->xy[12] = SECP256K1_G_PRE_COMPUTED_12;
+  r->xy[13] = SECP256K1_G_PRE_COMPUTED_13;
+  r->xy[14] = SECP256K1_G_PRE_COMPUTED_14;
+  r->xy[15] = SECP256K1_G_PRE_COMPUTED_15;
+  r->xy[16] = SECP256K1_G_PRE_COMPUTED_16;
+  r->xy[17] = SECP256K1_G_PRE_COMPUTED_17;
+  r->xy[18] = SECP256K1_G_PRE_COMPUTED_18;
+  r->xy[19] = SECP256K1_G_PRE_COMPUTED_19;
+  r->xy[20] = SECP256K1_G_PRE_COMPUTED_20;
+  r->xy[21] = SECP256K1_G_PRE_COMPUTED_21;
+  r->xy[22] = SECP256K1_G_PRE_COMPUTED_22;
+  r->xy[23] = SECP256K1_G_PRE_COMPUTED_23;
+  r->xy[24] = SECP256K1_G_PRE_COMPUTED_24;
+  r->xy[25] = SECP256K1_G_PRE_COMPUTED_25;
+  r->xy[26] = SECP256K1_G_PRE_COMPUTED_26;
+  r->xy[27] = SECP256K1_G_PRE_COMPUTED_27;
+  r->xy[28] = SECP256K1_G_PRE_COMPUTED_28;
+  r->xy[29] = SECP256K1_G_PRE_COMPUTED_29;
+  r->xy[30] = SECP256K1_G_PRE_COMPUTED_30;
+  r->xy[31] = SECP256K1_G_PRE_COMPUTED_31;
+  r->xy[32] = SECP256K1_G_PRE_COMPUTED_32;
+  r->xy[33] = SECP256K1_G_PRE_COMPUTED_33;
+  r->xy[34] = SECP256K1_G_PRE_COMPUTED_34;
+  r->xy[35] = SECP256K1_G_PRE_COMPUTED_35;
+  r->xy[36] = SECP256K1_G_PRE_COMPUTED_36;
+  r->xy[37] = SECP256K1_G_PRE_COMPUTED_37;
+  r->xy[38] = SECP256K1_G_PRE_COMPUTED_38;
+  r->xy[39] = SECP256K1_G_PRE_COMPUTED_39;
+  r->xy[40] = SECP256K1_G_PRE_COMPUTED_40;
+  r->xy[41] = SECP256K1_G_PRE_COMPUTED_41;
+  r->xy[42] = SECP256K1_G_PRE_COMPUTED_42;
+  r->xy[43] = SECP256K1_G_PRE_COMPUTED_43;
+  r->xy[44] = SECP256K1_G_PRE_COMPUTED_44;
+  r->xy[45] = SECP256K1_G_PRE_COMPUTED_45;
+  r->xy[46] = SECP256K1_G_PRE_COMPUTED_46;
+  r->xy[47] = SECP256K1_G_PRE_COMPUTED_47;
+  r->xy[48] = SECP256K1_G_PRE_COMPUTED_48;
+  r->xy[49] = SECP256K1_G_PRE_COMPUTED_49;
+  r->xy[50] = SECP256K1_G_PRE_COMPUTED_50;
+  r->xy[51] = SECP256K1_G_PRE_COMPUTED_51;
+  r->xy[52] = SECP256K1_G_PRE_COMPUTED_52;
+  r->xy[53] = SECP256K1_G_PRE_COMPUTED_53;
+  r->xy[54] = SECP256K1_G_PRE_COMPUTED_54;
+  r->xy[55] = SECP256K1_G_PRE_COMPUTED_55;
+  r->xy[56] = SECP256K1_G_PRE_COMPUTED_56;
+  r->xy[57] = SECP256K1_G_PRE_COMPUTED_57;
+  r->xy[58] = SECP256K1_G_PRE_COMPUTED_58;
+  r->xy[59] = SECP256K1_G_PRE_COMPUTED_59;
+  r->xy[60] = SECP256K1_G_PRE_COMPUTED_60;
+  r->xy[61] = SECP256K1_G_PRE_COMPUTED_61;
+  r->xy[62] = SECP256K1_G_PRE_COMPUTED_62;
+  r->xy[63] = SECP256K1_G_PRE_COMPUTED_63;
+  r->xy[64] = SECP256K1_G_PRE_COMPUTED_64;
+  r->xy[65] = SECP256K1_G_PRE_COMPUTED_65;
+  r->xy[66] = SECP256K1_G_PRE_COMPUTED_66;
+  r->xy[67] = SECP256K1_G_PRE_COMPUTED_67;
+  r->xy[68] = SECP256K1_G_PRE_COMPUTED_68;
+  r->xy[69] = SECP256K1_G_PRE_COMPUTED_69;
+  r->xy[70] = SECP256K1_G_PRE_COMPUTED_70;
+  r->xy[71] = SECP256K1_G_PRE_COMPUTED_71;
+  r->xy[72] = SECP256K1_G_PRE_COMPUTED_72;
+  r->xy[73] = SECP256K1_G_PRE_COMPUTED_73;
+  r->xy[74] = SECP256K1_G_PRE_COMPUTED_74;
+  r->xy[75] = SECP256K1_G_PRE_COMPUTED_75;
+  r->xy[76] = SECP256K1_G_PRE_COMPUTED_76;
+  r->xy[77] = SECP256K1_G_PRE_COMPUTED_77;
+  r->xy[78] = SECP256K1_G_PRE_COMPUTED_78;
+  r->xy[79] = SECP256K1_G_PRE_COMPUTED_79;
+  r->xy[80] = SECP256K1_G_PRE_COMPUTED_80;
+  r->xy[81] = SECP256K1_G_PRE_COMPUTED_81;
+  r->xy[82] = SECP256K1_G_PRE_COMPUTED_82;
+  r->xy[83] = SECP256K1_G_PRE_COMPUTED_83;
+  r->xy[84] = SECP256K1_G_PRE_COMPUTED_84;
+  r->xy[85] = SECP256K1_G_PRE_COMPUTED_85;
+  r->xy[86] = SECP256K1_G_PRE_COMPUTED_86;
+  r->xy[87] = SECP256K1_G_PRE_COMPUTED_87;
+  r->xy[88] = SECP256K1_G_PRE_COMPUTED_88;
+  r->xy[89] = SECP256K1_G_PRE_COMPUTED_89;
+  r->xy[90] = SECP256K1_G_PRE_COMPUTED_90;
+  r->xy[91] = SECP256K1_G_PRE_COMPUTED_91;
+  r->xy[92] = SECP256K1_G_PRE_COMPUTED_92;
+  r->xy[93] = SECP256K1_G_PRE_COMPUTED_93;
+  r->xy[94] = SECP256K1_G_PRE_COMPUTED_94;
+  r->xy[95] = SECP256K1_G_PRE_COMPUTED_95;
+
+  // 9G, 11G, 13G, 15G (w=5 extension)
+  r->xy[96]  = SECP256K1_G_PRE_COMPUTED_96;
+  r->xy[97]  = SECP256K1_G_PRE_COMPUTED_97;
+  r->xy[98]  = SECP256K1_G_PRE_COMPUTED_98;
+  r->xy[99]  = SECP256K1_G_PRE_COMPUTED_99;
+  r->xy[100] = SECP256K1_G_PRE_COMPUTED_100;
+  r->xy[101] = SECP256K1_G_PRE_COMPUTED_101;
+  r->xy[102] = SECP256K1_G_PRE_COMPUTED_102;
+  r->xy[103] = SECP256K1_G_PRE_COMPUTED_103;
+  r->xy[104] = SECP256K1_G_PRE_COMPUTED_104;
+  r->xy[105] = SECP256K1_G_PRE_COMPUTED_105;
+  r->xy[106] = SECP256K1_G_PRE_COMPUTED_106;
+  r->xy[107] = SECP256K1_G_PRE_COMPUTED_107;
+  r->xy[108] = SECP256K1_G_PRE_COMPUTED_108;
+  r->xy[109] = SECP256K1_G_PRE_COMPUTED_109;
+  r->xy[110] = SECP256K1_G_PRE_COMPUTED_110;
+  r->xy[111] = SECP256K1_G_PRE_COMPUTED_111;
+  r->xy[112] = SECP256K1_G_PRE_COMPUTED_112;
+  r->xy[113] = SECP256K1_G_PRE_COMPUTED_113;
+  r->xy[114] = SECP256K1_G_PRE_COMPUTED_114;
+  r->xy[115] = SECP256K1_G_PRE_COMPUTED_115;
+  r->xy[116] = SECP256K1_G_PRE_COMPUTED_116;
+  r->xy[117] = SECP256K1_G_PRE_COMPUTED_117;
+  r->xy[118] = SECP256K1_G_PRE_COMPUTED_118;
+  r->xy[119] = SECP256K1_G_PRE_COMPUTED_119;
+  r->xy[120] = SECP256K1_G_PRE_COMPUTED_120;
+  r->xy[121] = SECP256K1_G_PRE_COMPUTED_121;
+  r->xy[122] = SECP256K1_G_PRE_COMPUTED_122;
+  r->xy[123] = SECP256K1_G_PRE_COMPUTED_123;
+  r->xy[124] = SECP256K1_G_PRE_COMPUTED_124;
+  r->xy[125] = SECP256K1_G_PRE_COMPUTED_125;
+  r->xy[126] = SECP256K1_G_PRE_COMPUTED_126;
+  r->xy[127] = SECP256K1_G_PRE_COMPUTED_127;
+  r->xy[128] = SECP256K1_G_PRE_COMPUTED_128;
+  r->xy[129] = SECP256K1_G_PRE_COMPUTED_129;
+  r->xy[130] = SECP256K1_G_PRE_COMPUTED_130;
+  r->xy[131] = SECP256K1_G_PRE_COMPUTED_131;
+  r->xy[132] = SECP256K1_G_PRE_COMPUTED_132;
+  r->xy[133] = SECP256K1_G_PRE_COMPUTED_133;
+  r->xy[134] = SECP256K1_G_PRE_COMPUTED_134;
+  r->xy[135] = SECP256K1_G_PRE_COMPUTED_135;
+  r->xy[136] = SECP256K1_G_PRE_COMPUTED_136;
+  r->xy[137] = SECP256K1_G_PRE_COMPUTED_137;
+  r->xy[138] = SECP256K1_G_PRE_COMPUTED_138;
+  r->xy[139] = SECP256K1_G_PRE_COMPUTED_139;
+  r->xy[140] = SECP256K1_G_PRE_COMPUTED_140;
+  r->xy[141] = SECP256K1_G_PRE_COMPUTED_141;
+  r->xy[142] = SECP256K1_G_PRE_COMPUTED_142;
+  r->xy[143] = SECP256K1_G_PRE_COMPUTED_143;
+  r->xy[144] = SECP256K1_G_PRE_COMPUTED_144;
+  r->xy[145] = SECP256K1_G_PRE_COMPUTED_145;
+  r->xy[146] = SECP256K1_G_PRE_COMPUTED_146;
+  r->xy[147] = SECP256K1_G_PRE_COMPUTED_147;
+  r->xy[148] = SECP256K1_G_PRE_COMPUTED_148;
+  r->xy[149] = SECP256K1_G_PRE_COMPUTED_149;
+  r->xy[150] = SECP256K1_G_PRE_COMPUTED_150;
+  r->xy[151] = SECP256K1_G_PRE_COMPUTED_151;
+  r->xy[152] = SECP256K1_G_PRE_COMPUTED_152;
+  r->xy[153] = SECP256K1_G_PRE_COMPUTED_153;
+  r->xy[154] = SECP256K1_G_PRE_COMPUTED_154;
+  r->xy[155] = SECP256K1_G_PRE_COMPUTED_155;
+  r->xy[156] = SECP256K1_G_PRE_COMPUTED_156;
+  r->xy[157] = SECP256K1_G_PRE_COMPUTED_157;
+  r->xy[158] = SECP256K1_G_PRE_COMPUTED_158;
+  r->xy[159] = SECP256K1_G_PRE_COMPUTED_159;
+  r->xy[160] = SECP256K1_G_PRE_COMPUTED_160;
+  r->xy[161] = SECP256K1_G_PRE_COMPUTED_161;
+  r->xy[162] = SECP256K1_G_PRE_COMPUTED_162;
+  r->xy[163] = SECP256K1_G_PRE_COMPUTED_163;
+  r->xy[164] = SECP256K1_G_PRE_COMPUTED_164;
+  r->xy[165] = SECP256K1_G_PRE_COMPUTED_165;
+  r->xy[166] = SECP256K1_G_PRE_COMPUTED_166;
+  r->xy[167] = SECP256K1_G_PRE_COMPUTED_167;
+  r->xy[168] = SECP256K1_G_PRE_COMPUTED_168;
+  r->xy[169] = SECP256K1_G_PRE_COMPUTED_169;
+  r->xy[170] = SECP256K1_G_PRE_COMPUTED_170;
+  r->xy[171] = SECP256K1_G_PRE_COMPUTED_171;
+  r->xy[172] = SECP256K1_G_PRE_COMPUTED_172;
+  r->xy[173] = SECP256K1_G_PRE_COMPUTED_173;
+  r->xy[174] = SECP256K1_G_PRE_COMPUTED_174;
+  r->xy[175] = SECP256K1_G_PRE_COMPUTED_175;
+  r->xy[176] = SECP256K1_G_PRE_COMPUTED_176;
+  r->xy[177] = SECP256K1_G_PRE_COMPUTED_177;
+  r->xy[178] = SECP256K1_G_PRE_COMPUTED_178;
+  r->xy[179] = SECP256K1_G_PRE_COMPUTED_179;
+  r->xy[180] = SECP256K1_G_PRE_COMPUTED_180;
+  r->xy[181] = SECP256K1_G_PRE_COMPUTED_181;
+  r->xy[182] = SECP256K1_G_PRE_COMPUTED_182;
+  r->xy[183] = SECP256K1_G_PRE_COMPUTED_183;
+  r->xy[184] = SECP256K1_G_PRE_COMPUTED_184;
+  r->xy[185] = SECP256K1_G_PRE_COMPUTED_185;
+  r->xy[186] = SECP256K1_G_PRE_COMPUTED_186;
+  r->xy[187] = SECP256K1_G_PRE_COMPUTED_187;
+  r->xy[188] = SECP256K1_G_PRE_COMPUTED_188;
+  r->xy[189] = SECP256K1_G_PRE_COMPUTED_189;
+  r->xy[190] = SECP256K1_G_PRE_COMPUTED_190;
+  r->xy[191] = SECP256K1_G_PRE_COMPUTED_191;
+}
+
+/*
+ * Convert scalar k to w-NAF using byte packing (4 digits per u32, 8 bits each).
+ * Window size is controlled by WNAF_WINDOW_SIZE macro (default 4).
+ * Encoding: 0 = zero digit; positive odd d → val=d; negative odd d → val=(2^w+1)-d.
+ * @param naf out: byte-packed NAF, array of SECP256K1_NAF_BYTE_SIZE u32 words.
+ *                 MUST be zero-initialized by the caller before this call;
+ *                 the function ORs digits into the array.
+ * @param k in: 256-bit scalar, array of 8 u32 words (little-endian limbs, k[0]=LSW).
+ * @return loop_start index (position of highest nonzero digit).
+ */
+DECLSPEC int convert_to_wnaf_byte (PRIVATE_AS u32 *naf, PRIVATE_AS const u32 *k)
+{
+  int loop_start = 0;
+
+  const u32 w       = WNAF_WINDOW_SIZE;
+  const u32 mask    = WNAF_MASK;           // (1 << w) - 1
+  const u32 half    = WNAF_HALF;           // 1 << (w-1)
+  const u32 two_w   = (1u << w);           // 2^w (for subtraction when digit >= half)
+  const u32 val_neg = two_w + 1u;          // 2^w + 1 (for negative digit encoding)
+
+  u32 n[9];
+
+  // Reversed limb order: n[8] = LSW (k[0]), n[1] = MSW (k[7]), n[0] = carry slot.
+  // This matches the existing convert_to_window_naf() convention.
+  n[0] =    0; // extra high word for carry/borrow propagation
+  n[1] = k[7];
+  n[2] = k[6];
+  n[3] = k[5];
+  n[4] = k[4];
+  n[5] = k[3];
+  n[6] = k[2];
+  n[7] = k[1];
+  n[8] = k[0];
+
+  // Iterate over all 257 bit positions (0..256 inclusive).
+  // The NAF can be at most bit_length(k)+1 digits long (<=257 for a 256-bit k).
+  // SECP256K1_NAF_BYTE_SIZE = 65 u32 words * 4 bytes/word = 260 byte slots >= 257.
+  for (int i = 0; i <= 256; i++)
+  {
+    if (n[8] & 1)
+    {
+      int diff = (int)(n[8] & mask); // lower w bits (always in [0, 2^w - 1])
+
+      u32 val = (u32)diff;
+
+      if ((u32)diff >= half)
+      {
+        diff -= (int)two_w;
+        val   = val_neg - val; // encode negative digit
+      }
+
+      // pack 4 bytes per u32: byte index i → word i>>2, shift (i&3)<<3
+      naf[i >> 2] |= val << ((i & 3) << 3);
+
+      u32 t = n[8]; // save old LSW for carry detection
+
+      n[8] -= (u32)diff;
+
+      // propagate carry/borrow upward
+      u32 kk = 8;
+
+      if (diff > 0)
+      {
+        while (n[kk] > t)
+        {
+          if (kk == 0) break;
+          kk--;
+          t    = n[kk];
+          n[kk]--;
+        }
+      }
+      else
+      {
+        while (t > n[kk])
+        {
+          if (kk == 0) break;
+          kk--;
+          t    = n[kk];
+          n[kk]++;
+        }
+      }
+
+      loop_start = i;
+    }
+
+    // right-shift n by 1 bit
+    n[8] = n[8] >> 1 | n[7] << 31;
+    n[7] = n[7] >> 1 | n[6] << 31;
+    n[6] = n[6] >> 1 | n[5] << 31;
+    n[5] = n[5] >> 1 | n[4] << 31;
+    n[4] = n[4] >> 1 | n[3] << 31;
+    n[3] = n[3] >> 1 | n[2] << 31;
+    n[2] = n[2] >> 1 | n[1] << 31;
+    n[1] = n[1] >> 1 | n[0] << 31;
+    n[0] = n[0] >> 1;
+  }
+
+  return loop_start;
+}
+
+/*
+ * Point multiplication using the w=5 precomputed table (1G..15G, 8 odd multiples).
+ * Uses convert_to_wnaf_byte() with WNAF_WINDOW_SIZE=5 (or current compile-time default).
+ * @param x1  out: x coordinate (8 u32).
+ * @param y1  out: y coordinate (8 u32).
+ * @param k   in:  256-bit scalar (8 u32).
+ * @param tmps in: w=5 precomputed basepoint table.
+ */
+DECLSPEC void point_mul_wnaf_w5 (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_w5_t *tmps)
+{
+  u32 naf[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+
+  int loop_start = convert_to_wnaf_byte (naf, k);
+
+  // Extract the first (highest) nonzero digit and initialize the accumulator.
+  const u32 multiplier0 = (naf[loop_start >> 2] >> ((loop_start & 3) << 3)) & 0xff;
+
+  const u32 odd0  = multiplier0 & 1;
+  const u32 xp0   = ((multiplier0 - 1 + odd0) >> 1) * 24;
+  const u32 yp0   = odd0 ? (xp0 + 8) : (xp0 + 16);
+
+  x1[0] = tmps->xy[xp0 + 0];
+  x1[1] = tmps->xy[xp0 + 1];
+  x1[2] = tmps->xy[xp0 + 2];
+  x1[3] = tmps->xy[xp0 + 3];
+  x1[4] = tmps->xy[xp0 + 4];
+  x1[5] = tmps->xy[xp0 + 5];
+  x1[6] = tmps->xy[xp0 + 6];
+  x1[7] = tmps->xy[xp0 + 7];
+
+  y1[0] = tmps->xy[yp0 + 0];
+  y1[1] = tmps->xy[yp0 + 1];
+  y1[2] = tmps->xy[yp0 + 2];
+  y1[3] = tmps->xy[yp0 + 3];
+  y1[4] = tmps->xy[yp0 + 4];
+  y1[5] = tmps->xy[yp0 + 5];
+  y1[6] = tmps->xy[yp0 + 6];
+  y1[7] = tmps->xy[yp0 + 7];
+
+  u32 z1[8] = { 0 };
+  z1[0] = 1;
+
+  // Main left-to-right loop
+  for (int pos = loop_start - 1; pos >= 0; pos--)
+  {
+    point_double (x1, y1, z1);
+
+    const u32 multiplier = (naf[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+
+    if (multiplier)
+    {
+      const u32 odd  = multiplier & 1;
+      const u32 x_pos = ((multiplier - 1 + odd) >> 1) * 24;
+      const u32 y_pos = odd ? (x_pos + 8) : (x_pos + 16);
+
+      u32 x2[8];
+
+      x2[0] = tmps->xy[x_pos + 0];
+      x2[1] = tmps->xy[x_pos + 1];
+      x2[2] = tmps->xy[x_pos + 2];
+      x2[3] = tmps->xy[x_pos + 3];
+      x2[4] = tmps->xy[x_pos + 4];
+      x2[5] = tmps->xy[x_pos + 5];
+      x2[6] = tmps->xy[x_pos + 6];
+      x2[7] = tmps->xy[x_pos + 7];
+
+      u32 y2[8];
+
+      y2[0] = tmps->xy[y_pos + 0];
+      y2[1] = tmps->xy[y_pos + 1];
+      y2[2] = tmps->xy[y_pos + 2];
+      y2[3] = tmps->xy[y_pos + 3];
+      y2[4] = tmps->xy[y_pos + 4];
+      y2[5] = tmps->xy[y_pos + 5];
+      y2[6] = tmps->xy[y_pos + 6];
+      y2[7] = tmps->xy[y_pos + 7];
+
+      point_add (x1, y1, z1, x2, y2);
+    }
+  }
+
+  // Convert from projective Jacobian to affine coordinates:
+  // x_affine = x / z^2 = x * (1/z)^2
+  // y_affine = y / z^3 = y * (1/z)^3
+
+  inv_mod (z1);
+
+  u32 z2[8];
+
+  mul_mod (z2, z1, z1); // z^2
+  mul_mod (x1, x1, z2); // x_affine
+
+  mul_mod (z1, z2, z1); // z^3
+  mul_mod (y1, y1, z1); // y_affine
+}
