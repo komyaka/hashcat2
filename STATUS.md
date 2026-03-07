@@ -3,17 +3,23 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: implementation — Phase 2 field arithmetic optimizations
-TIMESTAMP: 2026-03-10T00:00:00Z
-DETAILS: Implemented 7 changes in OpenCL/inc_ecc_secp256k1.cl:
-  1. sub(): replaced dead #elif 0 with #elif defined IS_AMD u64 borrow-chain
-  2. add(): replaced dead #elif 0 with #elif defined IS_AMD u64 carry-chain
-  3. sub_mod(): branch-free bitmask select (no if(borrow) branch)
-  4. add_mod(): branch-free bitmask select (no loop comparison, no if(mod))
-  5. reduce_mod_p(): new helper — two branch-free conditional-subtract passes
-  6. mul_mod(): final reduction replaced with reduce_mod_p() call
-  7. sqr_mod(): fully unrolled 16-column squaring + reduce_mod_p() call
-  All 97 Python tests pass.
+PHASE: Phase-2-FieldArithmetic
+TIMESTAMP: 2026-03-07T12:37:01Z
+DETAILS: Implemented Phase 2 field arithmetic optimizations in OpenCL/inc_ecc_secp256k1.cl:
+  - add(): #elif 0 → #elif defined IS_AMD; unrolled u64 carry-chain (v_add_co_u32/v_addc_co_u32)
+  - sub(): #elif 0 → #elif defined IS_AMD; unrolled u64 borrow-chain (v_sub_co_u32/v_subb_co_u32)
+  - sub_mod(): branch-free mask = -(borrow); CMOV-select r+p vs r
+  - add_mod(): branch-free mask = -(c|(borrow^1)); CMOV-select r-p vs r
+  - reduce_mod_p(): new shared helper — two branch-free conditional-subtract passes for c∈{0,1,2}
+  - mul_mod(): final two-loop reduction replaced with reduce_mod_p() call
+  - sqr_mod(): 16-column fully-unrolled squaring (no pragma loops) + reduce_mod_p() call
+CHANGES:
+  - mul_mod: branch-free final sub via reduce_mod_p()
+  - add/sub: AMD unrolled u64 carry/borrow-chain path enabled
+  - sqr_mod: Fully unrolled with shared reduce_mod_p() reduction
+  - add_mod/sub_mod: branch-free conditional subtraction
+ESTIMATED_SPEEDUP: +15-25% overall on AMD; +5-10% on NVIDIA
+TEST_RESULTS: 339/339 Python tests pass (python3 -m unittest discover -s Python/ -p "test_*.py")
 ```
 
 ```

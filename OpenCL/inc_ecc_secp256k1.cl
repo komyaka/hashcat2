@@ -645,10 +645,13 @@ DECLSPEC void reduce_mod_p (PRIVATE_AS u32 *r, u32 c, PRIVATE_AS const u32 *p_ar
     r[6] = (tmp[6] & mask) | (r[6] & ~mask);
     r[7] = (tmp[7] & mask) | (r[7] & ~mask);
 
-    /* If we wrapped (borrow==1) and subtracted (mask==-1), one c unit is consumed.
-     * (mask >> 31) extracts the sign bit as 0xFFFFFFFF when mask==-1, else 0.
-     * Multiplying by borrow ensures we only decrement when sub() actually borrowed.
-     * The (c != 0u) guard prevents underflow when c is already 0. */
+    /* Update carry c: when we selected tmp (mask == 0xFFFFFFFF) AND sub() wrapped
+     * (borrow == 1, meaning stored r < p), the wrap-around absorbed one "2^256" unit
+     * from c, so c must decrease by 1.  Three conditions are AND-ed together:
+     *   (mask >> 31)  — 1 iff we selected tmp (subtracted), 0 otherwise
+     *   borrow        — 1 iff sub() wrapped (r < p before subtraction)
+     *   (c != 0u)     — guard against decrementing an already-zero c
+     * When borrow == 0 (r >= p, no wrap), the "true" carry does not change. */
     c -= (mask >> 31) & borrow & (u32)(c != 0u);
   }
 

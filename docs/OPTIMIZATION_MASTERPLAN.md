@@ -103,26 +103,30 @@ grep -c '#endif' OpenCL/inc_ecc_secp256k1.cl
 
 ---
 
-## ФАЗА 2: Оптимизация полевой арифметики (mul_mod / add / sub)
+## ФАЗА 2: Оптимизация полевой арифметики (mul_mod / add / sub) ✅ ЗАВЕРШЕНА
 
 ### Задачи
 
-1. **FIELD-01** — K1-специализированная редукция `ModMulK1` (по образцу VanitySearch `IntMod.cpp`).
+1. ✅ **FIELD-01** — K1-специализированная редукция через `reduce_mod_p()`:
    - Файл: `OpenCL/inc_ecc_secp256k1.cl`
-   - Идея: `p = 2^256 − 2^32 − 977`, редукция через `k1 = (lo >> 32) + (lo & 0xFFFFFFFF) * 977`
-   - Позволяет заменить дорогое деление на умножение + сдвиг
+   - Реализовано: новая inline-функция `reduce_mod_p(r, c, p_arr)` — два branch-free
+     прохода условного вычитания p, достаточных для c ∈ {0,1,2}.
+   - Используется: `mul_mod()` и `sqr_mod()` вызывают `reduce_mod_p()` вместо циклов.
 
-2. **FIELD-02** — AMD GCN inline ASM для `add_mod`/`sub_mod`:
-   - Использовать `v_add_co_u32`, `v_addc_co_u32` (VALU carry-out instructions)
-   - Файл: `OpenCL/inc_ecc_secp256k1.cl` (под `#ifdef __AMDGCN__`)
+2. ✅ **FIELD-02** — AMD u64 carry-chain для `add()` и `sub()`:
+   - `#elif 0` заменён на `#elif defined IS_AMD` в обоих функциях.
+   - `add()`: развёрнутая u64 carry-chain — AMD компилятор генерирует `v_add_co_u32`/`v_addc_co_u32`.
+   - `sub()`: развёрнутая u64 borrow-chain со знаковым сдвигом — AMD генерирует `v_sub_co_u32`/`v_subb_co_u32`.
 
-3. **FIELD-03** — Полностью развёрнутый `sqr_mod` без циклов:
-   - Заменить все оставшиеся циклы в AMD-пути на явные инструкции
-   - Применить перекрёстное сложение (cross-term optimization): `a[i]*a[j]` для `i != j` вычислять один раз и сдваивать
+3. ✅ **FIELD-03** — Полностью развёрнутый `sqr_mod()` без `#pragma unroll` циклов:
+   - 16 явно развёрнутых колонок (column 0–15) с обработкой симметрии.
+   - Диагональные члены (`a[i]^2`) — без удвоения; кросс-члены (`2*a[i]*a[j]`) — с overflow-safe удвоением.
+   - Финальная редукция через `reduce_mod_p()`.
 
-4. **FIELD-04** — Branch-free final reduction в `mul_mod`:
-   - Заменить `if (r >= P) r -= P` на `r -= P * (r >= P)` (cmov/select)
-   - Применимо для `add_mod`, `sub_mod`
+4. ✅ **FIELD-04** — Branch-free финальная редукция в `add_mod()`, `sub_mod()`, `mul_mod()`, `sqr_mod()`:
+   - `add_mod()`: `mask = -(c | (borrow^1u))` — CMOV-паттерн, нет циклов и ветвлений.
+   - `sub_mod()`: `mask = -(borrow)` — CMOV-паттерн, нет `if (c)` ветвления.
+   - `mul_mod()`, `sqr_mod()`: `reduce_mod_p()` — два branch-free conditional-subtract прохода.
 
 ### Источники
 
