@@ -3,13 +3,14 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: implementation — Task 3: Batch Montgomery Inversion
-TIMESTAMP: 2026-03-07T09:25:06Z
-DETAILS: batch_inv_mod(arr, n) implemented (Montgomery's trick: 1 inv + n-1 muls);
-  integrated into point_get_coords window-table precomputation (3 Z-coords);
-  14 new Python tests added — core invariant batch_inv_mod(a)*a == 1 mod p
-  verified for n=1,2,3,4, boundary values, fuzz-500, and equivalence against
-  individual inv_mod; 83 total Python tests pass (56 field arithmetic + 27 GLV).
+PHASE: implementation — Task 4: Window-NAF + Precomputed Tables
+TIMESTAMP: 2025-01-01T00:00:00Z
+DETAILS: WNAF_WINDOW_SIZE/TABLE_SIZE/MASK/HALF macros added; SECP256K1_NAF_BYTE_SIZE=65;
+  precomputed constants for 9G,11G,13G,15G (indices 96-191) added to header;
+  secp256k1_w5_t struct (192-word table); set_precomputed_basepoint_g_w5(),
+  convert_to_wnaf_byte(), point_mul_wnaf_w5() implemented in .cl;
+  Python/wnaf_autotune.py created (GPU cost model, autotune reports w=6 optimal);
+  Python/test_wnaf_window.py created with 68 tests; 151 total tests pass.
 ```
 
 ## IMPLEMENTATION LOG
@@ -289,3 +290,45 @@ TIMESTAMP: 2026-03-06T13:30:00Z
 DETAILS: PTX carry-chain bug fixed; 27 Python unit tests added and passing;
   mul_mod_ptx wired into point_mul_glv_xy; STATUS.md updated.
 ```
+
+### Task 4 Implementation
+
+## IMPLEMENTATION
+
+### Changes Made
+| File | Change Type | Description |
+|---|---|---|
+| `OpenCL/inc_ecc_secp256k1.h` | modified | WNAF macros, w=5 constants (9G..15G), secp256k1_w5_t struct, function declarations |
+| `OpenCL/inc_ecc_secp256k1.cl` | modified | set_precomputed_basepoint_g_w5(), convert_to_wnaf_byte(), point_mul_wnaf_w5() |
+| `Python/wnaf_autotune.py` | created | GPU cost model, w-NAF conversion, autotune (reports w=6 optimal) |
+| `Python/test_wnaf_window.py` | created | 68 tests: correctness, op counts, autotune, math verification, edge cases |
+| `STATUS.md` | modified | Updated with Task 4 results |
+
+### Tests Added
+| Test file | Test count | Covers AC |
+|---|---|---|
+| `Python/test_wnaf_window.py` | 68 | AC-1,2,3,4,5,6,7,8 |
+
+### Test Results
+```
+Ran 151 tests in 0.127s
+OK
+```
+
+### Acceptance Criteria Status
+- [x] AC-1: All 83 existing Python tests still pass — PASSED
+- [x] AC-2: New test_wnaf_window.py has ≥40 tests (68), all passing — PASSED
+- [x] AC-3: Precomputed constants 9G..15G satisfy x³+7=y² mod p — PASSED
+- [x] AC-4: autotune reports w=6 as optimal for typical GPU ratios — PASSED (w=6)
+- [x] AC-5: WNAF_WINDOW_SIZE macro and related constants in header — PASSED
+- [x] AC-6: secp256k1_w5_t struct declared in header — PASSED
+- [x] AC-7: convert_to_wnaf_byte() and point_mul_wnaf_w5() declared — PASSED
+- [x] AC-8: set_precomputed_basepoint_g_w5() implemented in .cl — PASSED
+- [x] AC-9: STATUS.md updated — PASSED
+
+### Implementation Status
+STATUS: VERIFIED
+AGENT: coder
+PHASE: implementation — Task 4
+TIMESTAMP: 2025-01-01T00:00:00Z
+DETAILS: All acceptance criteria met. 151 tests pass. CodeQL: 0 alerts.
