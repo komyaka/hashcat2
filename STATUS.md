@@ -3,6 +3,30 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
+PHASE: Phase-8-CriticalPerformanceOptimizations
+TIMESTAMP: 2026-03-07T17:00:00Z
+DETAILS: Phase 8 critical performance optimizations implemented.
+  - Task 1: point_add_affine_G() added to inc_ecc_secp256k1.cl — loads G from
+    SECP256K1_G* constants and calls point_add(); enables P_{i+1}=P_i+G (~2K cycles).
+  - Task 2: point_double_xyzz() and point_add_mixed_xyzz() added using
+    dbl-2008-s-1 (1M+5S) and madd-2008-s (7M+4S) XYZZ coordinate formulas.
+  - Task 3: point_mul_comb() added (guarded by SECP256K1_USE_COMB): d=4 fixed-base
+    comb with 15-entry table for G, 63 doublings + up to 64 additions per scalar.
+    Comb table values verified against secp256k1 arithmetic.
+  - Task 4: All 4 function declarations added to inc_ecc_secp256k1.h.
+  - Task 5: m35905_a3-pure.cl (Bitcoin): prv_to_hash160_xy(), add1_256(), and GKA
+    incremental loop in both mxx/sxx kernels (sequential key → point_add_affine_G,
+    non-sequential → full point_mul_glv_wnaf_w5).
+  - Task 6: m35906_a3-pure.cl (Ethereum): prv_to_eth_addr_xy(), add1_256(), and
+    identical GKA pattern in both mxx/sxx kernels.
+CHANGES: OpenCL/inc_ecc_secp256k1.cl (+249 lines), OpenCL/inc_ecc_secp256k1.h (+30),
+  OpenCL/m35905_a3-pure.cl (+205 lines), OpenCL/m35906_a3-pure.cl (+205 lines)
+TEST_RESULTS: All 535 Python tests pass (python3 -m unittest discover -s Python/ -p "test_*.py")
+```
+
+```
+STATUS: VERIFIED
+AGENT: coder
 PHASE: Phase-8-FinalIntegration
 TIMESTAMP: 2026-03-07T16:00:00Z
 DETAILS: Phase 8 final integration complete.
