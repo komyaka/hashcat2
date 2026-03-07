@@ -230,6 +230,83 @@ def point_mul_wnaf_w5(k):
     return Rx, Ry
 
 
+def _build_w6_table():
+    """Build precomputed table for w=6: 1G, 3G, 5G, ..., 31G (16 points)."""
+    G2x, G2y = point_double(Gx, Gy)
+    table = [(Gx, Gy)]
+    px, py = Gx, Gy
+    for _ in range(15):
+        px, py = point_add(px, py, G2x, G2y)
+        table.append((px, py))
+    return table
+
+
+_W6_TABLE = _build_w6_table()
+
+
+def point_mul_wnaf_w6(k):
+    """Scalar multiplication using wNAF w=6 (reference implementation)."""
+    naf = _convert_to_wnaf(k, 6)
+    Rx, Ry = None, None
+    for d in reversed(naf):
+        if Rx is not None:
+            Rx, Ry = point_double(Rx, Ry)
+        if d > 0:
+            idx = (d - 1) // 2
+            Rx, Ry = point_add(Rx, Ry, _W6_TABLE[idx][0], _W6_TABLE[idx][1])
+        elif d < 0:
+            idx = (-d - 1) // 2
+            Rx, Ry = point_add(Rx, Ry, _W6_TABLE[idx][0], P - _W6_TABLE[idx][1])
+    return Rx, Ry
+
+
+def point_mul_glv_wnaf_w5(k):
+    """GLV + wNAF w=5 scalar multiplication (Straus simultaneous method)."""
+    k1, k2 = _glv_decompose(k)
+
+    k1_neg = k1 < 0
+    k2_neg = k2 < 0
+    k1_abs = abs(k1)
+    k2_abs = abs(k2)
+
+    naf1 = _convert_to_wnaf(k1_abs, w=5)
+    naf2 = _convert_to_wnaf(k2_abs, w=5)
+
+    # phi(G) table: (beta*x mod p, y) for each table entry
+    phiGx = mul_mod(BETA, Gx)
+
+    length = max(len(naf1), len(naf2))
+    naf1 += [0] * (length - len(naf1))
+    naf2 += [0] * (length - len(naf2))
+
+    Rx, Ry = None, None
+    for i in range(length - 1, -1, -1):
+        if Rx is not None:
+            Rx, Ry = point_double(Rx, Ry)
+
+        d1 = naf1[i]
+        if d1 != 0:
+            idx = (abs(d1) - 1) // 2
+            Px, Py = _W5_TABLE[idx]
+            # Negate if: digit is negative XOR k1 is negative
+            if (d1 < 0) != k1_neg:
+                Py = P - Py
+            Rx, Ry = point_add(Rx, Ry, Px, Py)
+
+        d2 = naf2[i]
+        if d2 != 0:
+            idx = (abs(d2) - 1) // 2
+            Px, Py = _W5_TABLE[idx]
+            # Apply endomorphism: phi(P) = (beta * Px mod p, Py)
+            Px = mul_mod(BETA, Px)
+            # Negate if: digit is negative XOR k2 is negative
+            if (d2 < 0) != k2_neg:
+                Py = P - Py
+            Rx, Ry = point_add(Rx, Ry, Px, Py)
+
+    return Rx, Ry
+
+
 # ---------------------------------------------------------------------------
 # Helper: verify a point is on the curve
 # ---------------------------------------------------------------------------
@@ -781,6 +858,381 @@ class TestPhase1EdgeCases(unittest.TestCase):
                                  f"GLV y diverges for k={hex(k)[:18]}")
                 if std_x is not None:
                     self.assertTrue(_on_curve(glv_x, glv_y))
+
+
+class TestWNAFw6(unittest.TestCase):
+    """Phase 3 Task 3.1: wNAF w=6 correctness tests."""
+
+    def test_w6_table_length(self):
+        """w=6 table has exactly 16 points (1G, 3G, ..., 31G)."""
+        self.assertEqual(len(_W6_TABLE), 16)
+
+    def test_w6_table_first_entry_is_g(self):
+        """First entry of w=6 table is the generator point G."""
+        self.assertEqual(_W6_TABLE[0], (Gx, Gy))
+
+    def test_w6_table_on_curve(self):
+        """All 16 entries of w=6 table (1G, 3G, ..., 31G) lie on the curve."""
+        for i, (Px, Py) in enumerate(_W6_TABLE):
+            odd = 2 * i + 1
+            with self.subTest(multiple=odd):
+                self.assertTrue(_on_curve(Px, Py),
+                                f"{odd}G is not on the secp256k1 curve")
+
+    def test_w6_table_matches_scalar_mul(self):
+        """Each w=6 table entry matches direct scalar multiplication."""
+        for i, (Px, Py) in enumerate(_W6_TABLE):
+            odd = 2 * i + 1
+            with self.subTest(multiple=odd):
+                ex, ey = point_mul(odd)
+                self.assertEqual(Px, ex, f"{odd}G x mismatch")
+                self.assertEqual(Py, ey, f"{odd}G y mismatch")
+
+    def test_wnaf_w6_vs_standard_known(self):
+        """wNAF w=6 matches standard point_mul for known small scalars."""
+        known = [1, 2, 3, 7, 15, 31, 32, 255, 256, 65537]
+        for k in known:
+            if 1 <= k < N:
+                with self.subTest(k=k):
+                    std_x, std_y = point_mul(k)
+                    w6_x, w6_y = point_mul_wnaf_w6(k)
+                    self.assertEqual(std_x, w6_x, f"w=6 x diverges for k={k}")
+                    self.assertEqual(std_y, w6_y, f"w=6 y diverges for k={k}")
+
+    def test_wnaf_w6_vs_standard_random(self):
+        """wNAF w=6 matches standard point_mul for 20 random scalars."""
+        import random
+        rng = random.Random(0xDEADBEEF6)
+        for i in range(20):
+            k = rng.randrange(1, N)
+            with self.subTest(i=i, k=hex(k)[:18]):
+                std_x, std_y = point_mul(k)
+                w6_x, w6_y = point_mul_wnaf_w6(k)
+                self.assertEqual(std_x, w6_x,
+                                 f"w=6 x diverges at i={i} k={hex(k)[:18]}")
+                self.assertEqual(std_y, w6_y,
+                                 f"w=6 y diverges at i={i} k={hex(k)[:18]}")
+
+    def test_wnaf_w6_edge_k1(self):
+        """wNAF w=6: k=1 returns G."""
+        x, y = point_mul_wnaf_w6(1)
+        self.assertEqual(x, Gx)
+        self.assertEqual(y, Gy)
+
+    def test_wnaf_w6_edge_k2(self):
+        """wNAF w=6: k=2 returns 2G."""
+        x, y = point_mul_wnaf_w6(2)
+        ex, ey = point_mul(2)
+        self.assertEqual(x, ex)
+        self.assertEqual(y, ey)
+
+    def test_wnaf_w6_edge_n_minus_1(self):
+        """wNAF w=6: k=n-1 returns -G = (Gx, p-Gy)."""
+        x, y = point_mul_wnaf_w6(N - 1)
+        self.assertEqual(x, Gx)
+        self.assertEqual(y, P - Gy)
+
+    def test_wnaf_w6_edge_n_minus_2(self):
+        """wNAF w=6: k=n-2 matches standard."""
+        std_x, std_y = point_mul(N - 2)
+        w6_x, w6_y = point_mul_wnaf_w6(N - 2)
+        self.assertEqual(w6_x, std_x)
+        self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_result_on_curve(self):
+        """wNAF w=6 results lie on the secp256k1 curve."""
+        import random
+        rng = random.Random(0xCAFEBABE)
+        for i in range(10):
+            k = rng.randrange(1, N)
+            x, y = point_mul_wnaf_w6(k)
+            with self.subTest(i=i):
+                self.assertTrue(_on_curve(x, y),
+                                f"w=6 result not on curve for k={hex(k)[:18]}")
+
+    def test_w6_table_extends_w5_table(self):
+        """First 8 entries of w=6 table match the w=5 table exactly."""
+        for i in range(8):
+            with self.subTest(i=i):
+                self.assertEqual(_W6_TABLE[i], _W5_TABLE[i],
+                                 f"w=6 table[{i}] differs from w=5 table[{i}]")
+
+    def test_wnaf_w6_consistent_with_wnaf_w5(self):
+        """wNAF w=6 and wNAF w=5 agree on 10 random scalars."""
+        import random
+        rng = random.Random(0xC0FFEEF65)
+        for i in range(10):
+            k = rng.randrange(1, N)
+            w5_x, w5_y = point_mul_wnaf_w5(k)
+            w6_x, w6_y = point_mul_wnaf_w6(k)
+            with self.subTest(i=i):
+                self.assertEqual(w6_x, w5_x)
+                self.assertEqual(w6_y, w5_y)
+
+    def test_wnaf_w6_large_scalar(self):
+        """wNAF w=6: large near-N scalar matches standard."""
+        k = N - 1000000007
+        std_x, std_y = point_mul(k)
+        w6_x, w6_y = point_mul_wnaf_w6(k)
+        self.assertEqual(w6_x, std_x)
+        self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_power_of_two(self):
+        """wNAF w=6: power-of-two scalars match standard."""
+        for e in [1, 4, 8, 16, 32, 64, 128, 200, 255]:
+            k = (1 << e) % N
+            if k == 0:
+                continue
+            with self.subTest(e=e):
+                std_x, std_y = point_mul(k)
+                w6_x, w6_y = point_mul_wnaf_w6(k)
+                self.assertEqual(w6_x, std_x)
+                self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_multiples_of_table_entries(self):
+        """wNAF w=6: explicit multiples 1G through 31G all correct."""
+        for m in range(1, 32, 2):  # 1, 3, 5, ..., 31
+            with self.subTest(m=m):
+                std_x, std_y = point_mul(m)
+                w6_x, w6_y = point_mul_wnaf_w6(m)
+                self.assertEqual(w6_x, std_x)
+                self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_small_random_batch(self):
+        """wNAF w=6: batch of 20 small random scalars < 1000 match standard."""
+        import random
+        rng = random.Random(0x11223344)
+        for i in range(20):
+            k = rng.randrange(1, 1000)
+            with self.subTest(i=i, k=k):
+                std_x, std_y = point_mul(k)
+                w6_x, w6_y = point_mul_wnaf_w6(k)
+                self.assertEqual(w6_x, std_x)
+                self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_bit_pattern_all_ones(self):
+        """wNAF w=6: k with all-ones bit pattern matches standard."""
+        k = (1 << 256) - 1  # large value; reduce mod n
+        k = k % (N - 1) + 1  # ensure 1 <= k < N
+        std_x, std_y = point_mul(k)
+        w6_x, w6_y = point_mul_wnaf_w6(k)
+        self.assertEqual(w6_x, std_x)
+        self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_batch_primes(self):
+        """wNAF w=6: small prime scalars all match standard."""
+        primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
+        for p in primes:
+            with self.subTest(p=p):
+                std_x, std_y = point_mul(p)
+                w6_x, w6_y = point_mul_wnaf_w6(p)
+                self.assertEqual(w6_x, std_x)
+                self.assertEqual(w6_y, std_y)
+
+    def test_wnaf_w6_negation_property(self):
+        """wNAF w=6: k*G + (n-k)*G = point at infinity (G's negation)."""
+        import random
+        rng = random.Random(0x55AA55AA)
+        for i in range(5):
+            k = rng.randrange(1, N)
+            x1, y1 = point_mul_wnaf_w6(k)
+            x2, y2 = point_mul_wnaf_w6(N - k)
+            with self.subTest(i=i):
+                # x coordinates must be equal, y must be negations
+                self.assertEqual(x1, x2)
+                self.assertEqual((y1 + y2) % P, 0)
+
+
+class TestGLVwNAF(unittest.TestCase):
+    """Phase 3 Task 3.5: GLV + wNAF w=5 (Straus method) correctness tests."""
+
+    def test_glv_wnaf_w5_vs_standard_known(self):
+        """GLV+wNAF w=5 matches standard for known small scalars."""
+        known = [1, 2, 3, 7, 15, 31, 127, 255, 1024, 65537]
+        for k in known:
+            if 1 <= k < N:
+                with self.subTest(k=k):
+                    std_x, std_y = point_mul(k)
+                    glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+                    self.assertEqual(std_x, glv_x, f"GLV+wNAF x diverges for k={k}")
+                    self.assertEqual(std_y, glv_y, f"GLV+wNAF y diverges for k={k}")
+
+    def test_glv_wnaf_w5_vs_standard_random(self):
+        """GLV+wNAF w=5 matches standard for 20 random scalars."""
+        import random
+        rng = random.Random(0xABCDEF500)
+        for i in range(20):
+            k = rng.randrange(1, N)
+            with self.subTest(i=i, k=hex(k)[:18]):
+                std_x, std_y = point_mul(k)
+                glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+                self.assertEqual(std_x, glv_x,
+                                 f"GLV+wNAF x diverges at i={i}")
+                self.assertEqual(std_y, glv_y,
+                                 f"GLV+wNAF y diverges at i={i}")
+
+    def test_glv_wnaf_w5_edge_k1(self):
+        """GLV+wNAF: k=1 returns G."""
+        x, y = point_mul_glv_wnaf_w5(1)
+        self.assertEqual(x, Gx)
+        self.assertEqual(y, Gy)
+
+    def test_glv_wnaf_w5_edge_k2(self):
+        """GLV+wNAF: k=2 returns 2G."""
+        x, y = point_mul_glv_wnaf_w5(2)
+        ex, ey = point_mul(2)
+        self.assertEqual(x, ex)
+        self.assertEqual(y, ey)
+
+    def test_glv_wnaf_w5_edge_n_minus_1(self):
+        """GLV+wNAF: k=n-1 returns -G = (Gx, p-Gy)."""
+        x, y = point_mul_glv_wnaf_w5(N - 1)
+        self.assertEqual(x, Gx)
+        self.assertEqual(y, P - Gy)
+
+    def test_glv_wnaf_w5_edge_n_minus_2(self):
+        """GLV+wNAF: k=n-2 matches standard."""
+        std_x, std_y = point_mul(N - 2)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(N - 2)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_result_on_curve(self):
+        """GLV+wNAF w=5 results lie on the secp256k1 curve."""
+        import random
+        rng = random.Random(0xFACEB00C)
+        for i in range(10):
+            k = rng.randrange(1, N)
+            x, y = point_mul_glv_wnaf_w5(k)
+            with self.subTest(i=i):
+                self.assertTrue(_on_curve(x, y),
+                                f"GLV+wNAF result not on curve for k={hex(k)[:18]}")
+
+    def test_glv_wnaf_w5_consistent_with_glv(self):
+        """GLV+wNAF w=5 and standard GLV agree on 10 random scalars."""
+        import random
+        rng = random.Random(0xBEEFCAFE)
+        for i in range(10):
+            k = rng.randrange(1, N)
+            glv_x, glv_y = point_mul_glv(k)
+            wnaf_x, wnaf_y = point_mul_glv_wnaf_w5(k)
+            with self.subTest(i=i):
+                self.assertEqual(wnaf_x, glv_x)
+                self.assertEqual(wnaf_y, glv_y)
+
+    def test_glv_wnaf_w5_lambda_scalar(self):
+        """GLV+wNAF: k=lambda gives (beta*Gx, Gy) = phi(G)."""
+        x, y = point_mul_glv_wnaf_w5(LAMBDA)
+        ex, ey = point_mul(LAMBDA)
+        self.assertEqual(x, ex)
+        self.assertEqual(y, ey)
+        # phi(G) has x = beta * Gx mod p, y = Gy
+        self.assertEqual(x, mul_mod(BETA, Gx))
+        self.assertEqual(y, Gy)
+
+    def test_glv_wnaf_w5_power_of_two_scalars(self):
+        """GLV+wNAF w=5 matches standard for power-of-two scalars."""
+        for e in [1, 8, 16, 32, 64, 100, 128]:
+            k = (1 << e) % N
+            if k == 0:
+                continue
+            with self.subTest(e=e):
+                std_x, std_y = point_mul(k)
+                glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+                self.assertEqual(glv_x, std_x)
+                self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_large_scalar(self):
+        """GLV+wNAF w=5: large near-N scalar matches standard."""
+        k = N - 999999937
+        std_x, std_y = point_mul(k)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_small_primes(self):
+        """GLV+wNAF w=5: small prime scalars all match standard."""
+        primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31]
+        for p in primes:
+            with self.subTest(p=p):
+                std_x, std_y = point_mul(p)
+                glv_x, glv_y = point_mul_glv_wnaf_w5(p)
+                self.assertEqual(glv_x, std_x)
+                self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_negation_property(self):
+        """GLV+wNAF w=5: k*G + (n-k)*G = point at infinity."""
+        import random
+        rng = random.Random(0x99887766)
+        for i in range(5):
+            k = rng.randrange(1, N)
+            x1, y1 = point_mul_glv_wnaf_w5(k)
+            x2, y2 = point_mul_glv_wnaf_w5(N - k)
+            with self.subTest(i=i):
+                self.assertEqual(x1, x2)
+                self.assertEqual((y1 + y2) % P, 0)
+
+    def test_glv_wnaf_w5_random_extra_20(self):
+        """GLV+wNAF w=5 matches standard for 20 extra independent random scalars."""
+        import random
+        rng = random.Random(0xDECAFBAD)
+        for i in range(20):
+            k = rng.randrange(1, N)
+            with self.subTest(i=i, k=hex(k)[:18]):
+                std_x, std_y = point_mul(k)
+                glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+                self.assertEqual(std_x, glv_x)
+                self.assertEqual(std_y, glv_y)
+
+    def test_glv_wnaf_w5_half_n(self):
+        """GLV+wNAF w=5: k=N//2 matches standard."""
+        k = N // 2
+        std_x, std_y = point_mul(k)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_quarter_n(self):
+        """GLV+wNAF w=5: k=N//4 matches standard."""
+        k = N // 4
+        std_x, std_y = point_mul(k)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_three_quarter_n(self):
+        """GLV+wNAF w=5: k=3*N//4 matches standard."""
+        k = 3 * N // 4
+        std_x, std_y = point_mul(k)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_k3(self):
+        """GLV+wNAF w=5: k=3 returns 3G."""
+        std_x, std_y = point_mul(3)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(3)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_k31(self):
+        """GLV+wNAF w=5: k=31 returns 31G."""
+        std_x, std_y = point_mul(31)
+        glv_x, glv_y = point_mul_glv_wnaf_w5(31)
+        self.assertEqual(glv_x, std_x)
+        self.assertEqual(glv_y, std_y)
+
+    def test_glv_wnaf_w5_consistent_with_wnaf_w6(self):
+        """GLV+wNAF w=5 and wNAF w=6 agree on 10 random scalars."""
+        import random
+        rng = random.Random(0x1A2B3C4D)
+        for i in range(10):
+            k = rng.randrange(1, N)
+            wnaf_x, wnaf_y = point_mul_wnaf_w6(k)
+            glv_x, glv_y = point_mul_glv_wnaf_w5(k)
+            with self.subTest(i=i):
+                self.assertEqual(glv_x, wnaf_x)
+                self.assertEqual(glv_y, wnaf_y)
 
 
 if __name__ == "__main__":

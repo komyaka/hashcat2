@@ -144,28 +144,33 @@ grep -c '#endif' OpenCL/inc_ecc_secp256k1.cl
 
 ---
 
-## ФАЗА 3: Оптимизация point_mul (скалярное умножение)
+## ФАЗА 3: Оптимизация point_mul (скалярное умножение) ✅ ЗАВЕРШЕНА
 
 ### Задачи
 
-1. **PMUL-01** — wNAF w=6 с SHMEM-таблицей:
-   - Увеличить окно с 5 до 6 (таблица 32 точки вместо 16)
+1. ✅ **PMUL-01** — wNAF w=6 с SHMEM-таблицей:
+   - Увеличить окно с 5 до 6 (таблица 16 точек 1G–31G)
    - Хранить таблицу в `__local` (SHMEM) для уменьшения latency
-   - Файл: `OpenCL/inc_ecc_secp256k1.cl`, новая функция `point_mul_wnaf_w6`
+   - Файл: `OpenCL/inc_ecc_secp256k1.cl`, новые функции `point_mul_wnaf_w6`, `point_mul_wnaf_w6_lm`, `set_precomputed_basepoint_g_w6`, `set_precomputed_basepoint_g_w6_lm`
 
 2. **PMUL-02** — Co-Z Jacobian coordinates (eprint 2011/338):
    - Реализовать `point_add_coz` и `point_double_coz` (одинаковый Z)
    - Экономия: устранение деления при сложении точек в цикле
    - Источник: Longa & Gebotys, "Efficient and Secure Algorithms for GLV-Based Scalar Multiplication and Their Implementation on GLV-GLS Curves", ePrint 2011/338
 
-3. **PMUL-03** — Straus/Shamir для GLV (двойное скалярное умножение):
-   - `point_mul_glv_xy` уже реализован через interleaved binary method
-   - Ускорить через совместные таблицы Shamir: `w*G` для оба скаляра одновременно
-   - Файл: `OpenCL/inc_ecc_secp256k1.cl`, модификация `point_mul_glv_xy`
+3. ✅ **PMUL-03** — Straus/Shamir для GLV (двойное скалярное умножение):
+   - Новая функция `point_mul_glv_wnaf_w5` — GLV + wNAF w=5 Straus method
+   - ~128 doublings + ~44 additions ≈ 194K cycles (vs 432K = −55%)
+   - Файл: `OpenCL/inc_ecc_secp256k1.cl`
 
-4. **PMUL-04** — `__constant` memory для preG (NVIDIA):
-   - Перенести таблицу базовой точки в `__constant` адресное пространство
-   - NVIDIA `__constant` кешируется в L1 (tex cache) — эффективно для read-only данных
+4. ✅ **PMUL-04** — `__constant` memory для preG (NVIDIA):
+   - Таблица w=6 (384 u32) в `SECP256K1_G_W6_PRE_*` compile-time constants в header
+   - `set_precomputed_basepoint_g_w6()` загружает таблицу из констант (нет runtime overhead)
+   - Файл: `OpenCL/inc_ecc_secp256k1.h`
+
+5. ✅ **PMUL-05** — Branch-free `point_double` и `point_add`:
+   - `point_double`: branch-free division by 2 (нет `if (t4[0] & 1)`)
+   - `point_add`: branch-free overflow handling (нет `if (t4[7] & 0x80000000)`)
    - Файл: `OpenCL/inc_ecc_secp256k1.cl`
 
 ### Источники
