@@ -3,13 +3,13 @@
 ```
 STATUS: VERIFIED
 AGENT: coder
-PHASE: implementation — Task 2: Fast field arithmetic (PTX inline + unroll)
-TIMESTAMP: 2026-03-06T14:00:00Z
-DETAILS: MULADD64 macro + fully-unrolled 8×8 mul_mod (no variable-bound loops);
-  sqr_mod_ptx added (delegates to mul_mod_ptx on NVIDIA, fallback on AMD);
-  sqr_mod dispatches to PTX path on NVIDIA; #pragma unroll 8/7/4 added to
-  sqr_mod AMD loops; 42 new Python field-arithmetic edge/fuzz tests all pass;
-  69 total Python tests pass (42 new + 27 existing GLV).
+PHASE: implementation — Task 3: Batch Montgomery Inversion
+TIMESTAMP: 2026-03-07T09:25:06Z
+DETAILS: batch_inv_mod(arr, n) implemented (Montgomery's trick: 1 inv + n-1 muls);
+  integrated into point_get_coords window-table precomputation (3 Z-coords);
+  14 new Python tests added — core invariant batch_inv_mod(a)*a == 1 mod p
+  verified for n=1,2,3,4, boundary values, fuzz-500, and equivalence against
+  individual inv_mod; 83 total Python tests pass (56 field arithmetic + 27 GLV).
 ```
 
 ## IMPLEMENTATION LOG
