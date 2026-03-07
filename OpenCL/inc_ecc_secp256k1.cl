@@ -3268,16 +3268,16 @@ DECLSPEC void set_precomputed_basepoint_g (PRIVATE_AS secp256k1_t *r)
 DECLSPEC void set_precomputed_basepoint_g_w5 (PRIVATE_AS secp256k1_w5_t *r)
 {
   // 1G, 3G, 5G, 7G (same as w=4 table)
-  r->xy[0]  = SECP256K1_G_PRE_COMPUTED_0;
-  r->xy[1]  = SECP256K1_G_PRE_COMPUTED_1;
-  r->xy[2]  = SECP256K1_G_PRE_COMPUTED_2;
-  r->xy[3]  = SECP256K1_G_PRE_COMPUTED_3;
-  r->xy[4]  = SECP256K1_G_PRE_COMPUTED_4;
-  r->xy[5]  = SECP256K1_G_PRE_COMPUTED_5;
-  r->xy[6]  = SECP256K1_G_PRE_COMPUTED_6;
-  r->xy[7]  = SECP256K1_G_PRE_COMPUTED_7;
-  r->xy[8]  = SECP256K1_G_PRE_COMPUTED_8;
-  r->xy[9]  = SECP256K1_G_PRE_COMPUTED_9;
+  r->xy[0]  = SECP256K1_G_PRE_COMPUTED_00;
+  r->xy[1]  = SECP256K1_G_PRE_COMPUTED_01;
+  r->xy[2]  = SECP256K1_G_PRE_COMPUTED_02;
+  r->xy[3]  = SECP256K1_G_PRE_COMPUTED_03;
+  r->xy[4]  = SECP256K1_G_PRE_COMPUTED_04;
+  r->xy[5]  = SECP256K1_G_PRE_COMPUTED_05;
+  r->xy[6]  = SECP256K1_G_PRE_COMPUTED_06;
+  r->xy[7]  = SECP256K1_G_PRE_COMPUTED_07;
+  r->xy[8]  = SECP256K1_G_PRE_COMPUTED_08;
+  r->xy[9]  = SECP256K1_G_PRE_COMPUTED_09;
   r->xy[10] = SECP256K1_G_PRE_COMPUTED_10;
   r->xy[11] = SECP256K1_G_PRE_COMPUTED_11;
   r->xy[12] = SECP256K1_G_PRE_COMPUTED_12;
@@ -3486,6 +3486,8 @@ DECLSPEC int convert_to_wnaf_byte (PRIVATE_AS u32 *naf, PRIVATE_AS const u32 *k)
 
   u32 n[9];
 
+  // Reversed limb order: n[8] = LSW (k[0]), n[1] = MSW (k[7]), n[0] = carry slot.
+  // This matches the existing convert_to_window_naf() convention.
   n[0] =    0; // extra high word for carry/borrow propagation
   n[1] = k[7];
   n[2] = k[6];
@@ -3500,6 +3502,10 @@ DECLSPEC int convert_to_wnaf_byte (PRIVATE_AS u32 *naf, PRIVATE_AS const u32 *k)
   // The NAF can be at most bit_length(k)+1 digits long (<=257 for a 256-bit k).
   // SECP256K1_NAF_BYTE_SIZE = 65 u32 words * 4 bytes/word = 260 byte slots >= 257.
   for (int i = 0; i <= 256; i++)
+  {
+    if (n[8] & 1)
+    {
+      int diff = (int)(n[8] & mask); // lower w bits (always in [0, 2^w - 1])
 
       u32 val = (u32)diff;
 
@@ -3639,6 +3645,17 @@ DECLSPEC void point_mul_wnaf_w5 (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE
     }
   }
 
-  // Convert from projective to affine coordinates
-  point_inv (x1, y1, z1);
+  // Convert from projective Jacobian to affine coordinates:
+  // x_affine = x / z^2 = x * (1/z)^2
+  // y_affine = y / z^3 = y * (1/z)^3
+
+  inv_mod (z1);
+
+  u32 z2[8];
+
+  mul_mod (z2, z1, z1); // z^2
+  mul_mod (x1, x1, z2); // x_affine
+
+  mul_mod (z1, z2, z1); // z^3
+  mul_mod (y1, y1, z1); // y_affine
 }
