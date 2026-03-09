@@ -1064,4 +1064,34 @@ typedef u32 secp256k1_scalar[8];
 // End of Task 8 API unification block
 // -----------------------------------------------------------------------
 
+/* -----------------------------------------------------------------------
+ * Phase 8: Group Key Addition helper
+ * Adds the generator G (affine) to a Jacobian point (x1:y1:z1) in-place.
+ * Use for incremental P_{i+1} = P_i + G in sequential brute-force loops.
+ * ----------------------------------------------------------------------- */
+DECLSPEC void point_add_affine_G (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 *z1);
+
+/* -----------------------------------------------------------------------
+ * Phase 8: XYZZ coordinate system functions.
+ * XYZZ uses (X:Y:ZZ:ZZZ) where ZZ=Z^2, ZZZ=Z^3.
+ * Affine recovery: x = X/ZZ, y = Y/ZZZ.
+ * point_double_xyzz : in-place doubling
+ * point_add_mixed_xyzz : in-place addition of an affine point (x2,y2)
+ * ----------------------------------------------------------------------- */
+DECLSPEC void point_double_xyzz (PRIVATE_AS u32 *X, PRIVATE_AS u32 *Y,
+                                  PRIVATE_AS u32 *ZZ, PRIVATE_AS u32 *ZZZ);
+DECLSPEC void point_add_mixed_xyzz (PRIVATE_AS u32 *X1, PRIVATE_AS u32 *Y1,
+                                     PRIVATE_AS u32 *ZZ1, PRIVATE_AS u32 *ZZZ1,
+                                     PRIVATE_AS const u32 *x2, PRIVATE_AS const u32 *y2);
+
+/* -----------------------------------------------------------------------
+ * Phase 8: d=4 Fixed-Base Comb scalar multiplication.
+ * Precomputed table for G with d=4 teeth, w=64 columns (256-bit scalar).
+ * Enable with: #define SECP256K1_USE_COMB before including this header.
+ * ----------------------------------------------------------------------- */
+#ifdef SECP256K1_USE_COMB
+DECLSPEC void point_mul_comb (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
+                               PRIVATE_AS const u32 *k);
+#endif /* SECP256K1_USE_COMB */
+
 #endif // INC_ECC_SECP256K1_H

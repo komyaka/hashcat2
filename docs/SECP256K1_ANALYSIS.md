@@ -207,3 +207,49 @@ Estimates assume AMD RX 580 (Polaris), CU clock ~1340 MHz, 64 threads/wavefront.
 ---
 
 *Generated automatically as part of Phase 8 final integration — 2026-03-07.*
+
+---
+
+## Phase 8 — Critical Performance Optimizations
+
+### Group Key Addition (m35905_a3, m35906_a3)
+
+For brute-force hex private-key attack (a3), consecutive candidates
+differ by 1 (as integers).  Instead of a full GLV+wNAF scalar multiply
+for every key, the kernel now uses **incremental group key addition**:
+
+```
+P_base = point_mul_glv_wnaf_w5(base_key, G)   // once per non-sequential start
+P_{i+1} = P_i + G                              // point_add_affine_G (~2K cycles)
+```
+
+Cost per sequential key: `point_add_affine_G` (~2K cycles) + `inv_mod` (~60K cycles)
+vs old: `point_mul_glv_wnaf_w5` (~194K cycles).  Approx **3× speedup** per key in
+fully sequential runs.  Non-sequential candidates (detected via `add1_256` comparison)
+fall back to the full multiply.
+
+New function: `point_add_affine_G(x, y, z)` — adds the generator G (loaded from
+`SECP256K1_G*` compile-time constants) to a Jacobian point in-place.
+
+### XYZZ Coordinate System
+
+Two new functions use the XYZZ representation (X:Y:ZZ:ZZZ) where ZZ=Z², ZZZ=Z³:
+
+| Function | Cost | vs Jacobian |
+|---|---|---|
+| `point_double_xyzz` | 6M+3S | 1M+8S Jacobian |
+| `point_add_mixed_xyzz` | 8M+2S | 11M+5S Jacobian |
+
+Note: ZZ/ZZZ affine recovery: x = X/ZZ, y = Y/ZZZ.  Both functions correctly
+handle general ZZ≠1 inputs: ZZ₃ = V·ZZ₁, ZZZ₃ = W·ZZZ₁.
+
+### d=4 Fixed-Base Comb Method (proof of concept)
+
+For brainwallet modules where the scalar is a random hash, a fixed-base comb
+method avoids the GLV decomposition overhead for short scalars:
+
+- Precomputed table: T[i] for i=0..15; T[i] = G-combination for 4-bit index i
+- Base points: G, 2⁶⁴G, 2¹²⁸G, 2¹⁹²G
+- Algorithm: 63 doublings + up to 64 point additions for any 256-bit scalar
+- Enabled via `#define SECP256K1_USE_COMB`
+- All 15 table entries are verified compile-time constants
