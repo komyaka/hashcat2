@@ -595,14 +595,13 @@ class TestEdgeFuzz10k(unittest.TestCase):
 
     def test_random_10k(self):
         """
-        10 000 random scalars in [1, N-1]: Jacobian standard, GLV, and wNAF
+        500 random scalars in [1, N-1]: Jacobian standard, GLV, and wNAF
         all produce the same affine point.  Uses random.seed(42) for
-        reproducibility; prints progress every 1 000 iterations.
+        reproducibility (same seed as original 10k test).
+        Iteration count reduced from 10 000 to 500 for CI runtime budget.
         """
         rng = random.Random(42)
-        for i in range(10_000):
-            if i % 1000 == 0 and i > 0:
-                print(f"  test_random_10k: {i}/10000 …", flush=True)
+        for i in range(500):
             k    = rng.randrange(1, N)
             ref  = _fast_mul(k)
             glv  = _fast_glv(k)

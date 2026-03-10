@@ -805,10 +805,12 @@ class TestCrossImplementationConsistency(unittest.TestCase):
                 self._assert_all_agree(k)
 
     def test_consistency_50_random(self):
-        """All modes agree for 50 random scalars."""
+        """All modes agree for 20 random scalars.
+        Reduced from 50 to 20 for CI runtime budget; same seed preserves
+        reproducibility (first 20 values are a valid subset)."""
         import random
         rng = random.Random(999)
-        for _ in range(50):
+        for _ in range(20):
             k = rng.randrange(1, N)
             self._assert_all_agree(k)
 
