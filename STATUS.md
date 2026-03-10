@@ -2,6 +2,29 @@
 
 ```
 STATUS: VERIFIED
+AGENT: orchestrator
+PHASE: Post-Merge-Audit
+TIMESTAMP: 2026-03-10T06:20:00Z
+DETAILS: Post-merge full code audit completed. All tests pass.
+  ISSUES FOUND AND FIXED:
+  - DEFECT-PM-01: test_m35905_a3_uses_secp256k1_w5_t and test_m35906_a3_uses_secp256k1_w5_t
+    were failing because they checked for `secp256k1_w5_t` (private-memory type) but
+    m35905_a3 and m35906_a3 correctly use `lm_w5` (LOCAL_AS shared memory, better occupancy).
+    FIX: Updated test assertions to check for `SECP256K1_W5_SHMEM_SIZE` which is present
+    in both files via `LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE]`.
+  AUDIT FINDINGS (no further action needed):
+  - No duplicate function definitions found in inc_ecc_secp256k1.cl
+  - No conflicting #define macros in inc_ecc_secp256k1.h
+  - Brace balance: 275 opens = 275 closes (perfect)
+  - All 27 module files use point_mul_glv_wnaf_w5 or GKA (no old point_mul_xy)
+  - m35912 intentionally skipped (AC-7: N/A in Phase 5 status entry)
+  - XYZZ, Comb, and GKA functions implemented in library; brainwallet modules
+    correctly use GLV+wNAF+_lm (faster than comb for random scalars due to GLV)
+TEST_RESULTS: 598/598 Python tests pass
+```
+
+```
+STATUS: VERIFIED
 AGENT: coder
 PHASE: Phase-8-CriticalPerformanceOptimizations-Final
 TIMESTAMP: 2026-03-07T17:30:00Z

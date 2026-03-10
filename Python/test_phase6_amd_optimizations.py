@@ -640,14 +640,14 @@ class TestAMDOpenCLSource(unittest.TestCase):
         self.assertIn("point_mul_glv_wnaf_w5", src)
 
     def test_m35905_a3_uses_secp256k1_w5_t(self):
-        """m35905_a3-pure.cl must declare secp256k1_w5_t preG."""
+        """m35905_a3-pure.cl must use the shared-memory w5 table (lm_w5)."""
         src = self._read("OpenCL/m35905_a3-pure.cl")
-        self.assertIn("secp256k1_w5_t", src)
+        self.assertIn("SECP256K1_W5_SHMEM_SIZE", src)
 
     def test_m35906_a3_uses_secp256k1_w5_t(self):
-        """m35906_a3-pure.cl must declare secp256k1_w5_t preG."""
+        """m35906_a3-pure.cl must use the shared-memory w5 table (lm_w5)."""
         src = self._read("OpenCL/m35906_a3-pure.cl")
-        self.assertIn("secp256k1_w5_t", src)
+        self.assertIn("SECP256K1_W5_SHMEM_SIZE", src)
 
     def test_m35905_a3_no_old_point_mul_xy(self):
         """m35905_a3-pure.cl must not call the old (slow) point_mul_xy."""
