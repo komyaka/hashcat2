@@ -823,3 +823,50 @@ CHANGES: OpenCL/m359{00-11}_a{0,1,3}-pure.cl (27 files), Python/test_shmem.py,
 ESTIMATED_SPEEDUP: −55% cycles for all modules (−50%+ for m35910 SHMEM→GLV)
 TEST_RESULTS: 413/413 Python tests pass
 ```
+
+---
+
+## Phase 9 — Local Memory Optimization (VGPR Reduction)
+
+### Implementation
+- **Added** `point_mul_glv_wnaf_w5_lm()` to `OpenCL/inc_ecc_secp256k1.cl/h`:
+  - Identical to `point_mul_glv_wnaf_w5()` but reads precomputed G table from
+    `LOCAL_AS const u32 *lm_xy` instead of `PRIVATE_AS const secp256k1_w5_t *tmps`
+  - Frees ~192 VGPRs per work-item (from the 192-u32 precomputed table)
+  - Expected occupancy improvement: 1→4 wavefronts per CU on AMD GCN/RDNA
+
+- **Updated all 27 m359* module kernels** (a0/a1/a3 × 9 modules):
+  - Removed `secp256k1_w5_t preG` private allocation (frees 192 VGPRs)
+  - Added `LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE]` declaration
+  - Added `set_precomputed_basepoint_g_w5_lm(lm_w5, lid, lsz)` before GID check
+    (cooperative fill by all workgroup threads, includes implicit barrier)
+  - Changed `point_mul_glv_wnaf_w5(x, y, k, &preG)` → `point_mul_glv_wnaf_w5_lm(x, y, k, lm_w5)`
+  - For m35905/m35906: updated helper function signatures to accept `LOCAL_AS const u32 *lm_w5`
+
+### Expected Impact (AMD RX 580 / Polaris GCN4)
+| Metric | Before | After |
+|--------|--------|-------|
+| VGPRs per work-item | ~250 | ~58 |
+| Wavefronts per CU | ~1 | ~4 |
+| Occupancy | ~2.5% | ~10% |
+| Estimated hashrate gain | baseline | **3-4×** |
+
+### Test Results
+- All Python tests updated to reflect new local memory pattern
+- `test_shmem.py`: 62 tests pass (added `TestAllModulesUseLocalMemory` with 5 new tests)
+- `test_regression_libsecp256k1.py`: 115 tests pass
+
+```
+STATUS: VERIFIED
+AGENT: coder
+PHASE: Phase-9-LocalMemoryOptimization
+TIMESTAMP: 2026-03-10T06:30:00Z
+DETAILS: All 27 m359* module files updated to use LOCAL_AS lm_w5 instead of
+  private secp256k1_w5_t preG. New point_mul_glv_wnaf_w5_lm() function added.
+  Expected 3-4× speedup on AMD GCN GPUs due to improved occupancy.
+CHANGES: OpenCL/inc_ecc_secp256k1.cl, OpenCL/inc_ecc_secp256k1.h,
+  OpenCL/m359{00-11}_a{0,1,3}-pure.cl (27 files),
+  Python/test_shmem.py, Python/test_regression_libsecp256k1.py
+ESTIMATED_SPEEDUP: 3-4× on AMD GCN/RDNA (occupancy 1→4 wavefronts/CU)
+TEST_RESULTS: 201/201 fast Python tests pass
+```

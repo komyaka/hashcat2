@@ -79,13 +79,13 @@ DECLSPEC void reverse_prv_key (PRIVATE_AS u32 *prv_rev, PRIVATE_AS const u32 *pr
 // Derive Bitcoin hash160 from private key: compressed pubkey → SHA256 → RIPEMD160.
 // P2SH mode wraps hash160 in OP_0 PUSH20, then hashes again.
 DECLSPEC void prv_to_hash160 (PRIVATE_AS u32 *rctx_h, PRIVATE_AS const u32 *prv_key,
-                               SECP256K1_TMPS_TYPE secp256k1_w5_t *preG,
+                               LOCAL_AS const u32 *lm_w5,
                                const u32 addr_type)
 {
   u32 x[8];
   u32 y[8];
 
-  point_mul_glv_wnaf_w5 (x, y, prv_key, preG);
+  point_mul_glv_wnaf_w5_lm (x, y, prv_key, lm_w5);
 
   // Compressed public key (33 bytes): prefix || x
   u32 pub_key[16] = { 0 };
@@ -151,12 +151,16 @@ DECLSPEC void prv_to_hash160 (PRIVATE_AS u32 *rctx_h, PRIVATE_AS const u32 *prv_
 KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_RULES ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -178,7 +182,7 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_RULES ())
     // Check key as-is
     u32 hash160[5];
 
-    prv_to_hash160 (hash160, prv_key, &preG, addr_type);
+    prv_to_hash160 (hash160, prv_key, lm_w5, addr_type);
 
     const u32 r0 = hash160[0];
     const u32 r1 = hash160[1];
@@ -192,7 +196,7 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_RULES ())
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_hash160 (hash160, prv_rev, &preG, addr_type);
+    prv_to_hash160 (hash160, prv_rev, lm_w5, addr_type);
 
     const u32 rr0 = hash160[0];
     const u32 rr1 = hash160[1];
@@ -206,6 +210,13 @@ KERNEL_FQ KERNEL_FA void m35905_mxx (KERN_ATTR_RULES ())
 KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_RULES ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
@@ -217,9 +228,6 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_RULES ())
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -239,7 +247,7 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_RULES ())
 
     u32 hash160[5];
 
-    prv_to_hash160 (hash160, prv_key, &preG, addr_type);
+    prv_to_hash160 (hash160, prv_key, lm_w5, addr_type);
 
     const u32 r0 = hash160[0];
     const u32 r1 = hash160[1];
@@ -252,7 +260,7 @@ KERNEL_FQ KERNEL_FA void m35905_sxx (KERN_ATTR_RULES ())
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_hash160 (hash160, prv_rev, &preG, addr_type);
+    prv_to_hash160 (hash160, prv_rev, lm_w5, addr_type);
 
     const u32 rr0 = hash160[0];
     const u32 rr1 = hash160[1];

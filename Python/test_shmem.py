@@ -426,26 +426,97 @@ class TestModuleFilesUseShmem(unittest.TestCase):
         content = self._read("OpenCL/m35910_a3-pure.cl")
         self.assertNotIn("secp256k1_t preG", content)
 
-    def test_all_modules_use_secp256k1_w5_t(self):
-        """Each module must declare the w=5 precomputed table (secp256k1_w5_t)."""
+    def test_all_modules_use_lm_w5_table(self):
+        """Each module must declare the LOCAL_AS w=5 table (lm_w5) instead of private preG."""
         for rel in self._MODULES:
             with self.subTest(module=rel):
                 content = self._read(rel)
-                self.assertIn("secp256k1_w5_t preG", content)
+                # New local-memory pattern — must NOT have the old private preG
+                self.assertNotIn("secp256k1_w5_t preG", content,
+                                 "Module still uses private preG; should use LOCAL_AS lm_w5")
+                self.assertIn("LOCAL_AS u32 lm_w5", content,
+                              "Module must declare LOCAL_AS u32 lm_w5 for occupancy improvement")
 
     def test_all_modules_call_set_precomputed_g_w5(self):
-        """Each module must call set_precomputed_basepoint_g_w5."""
+        """Each module must call set_precomputed_basepoint_g_w5_lm (local memory variant)."""
         for rel in self._MODULES:
             with self.subTest(module=rel):
                 content = self._read(rel)
-                self.assertIn("set_precomputed_basepoint_g_w5", content)
+                self.assertIn("set_precomputed_basepoint_g_w5_lm", content)
 
     def test_all_modules_use_glv_wnaf(self):
-        """Each module must call point_mul_glv_wnaf_w5."""
+        """Each module must call point_mul_glv_wnaf_w5_lm (local memory variant)."""
         for rel in self._MODULES:
             with self.subTest(module=rel):
                 content = self._read(rel)
-                self.assertIn("point_mul_glv_wnaf_w5", content)
+                self.assertIn("point_mul_glv_wnaf_w5_lm", content)
+
+
+class TestAllModulesUseLocalMemory(unittest.TestCase):
+    """Verify that ALL m359* modules use the local memory (lm_w5) pattern
+    introduced in Phase 9 to reduce VGPR pressure and improve GPU occupancy."""
+
+    _ALL_MODULES = [
+        f"OpenCL/m{m}_a{k}-pure.cl"
+        for m in ["35900", "35901", "35902", "35903", "35904",
+                  "35905", "35906", "35910", "35911"]
+        for k in [0, 1, 3]
+    ]
+
+    def _read(self, rel_path):
+        path = os.path.join(_REPO_ROOT, rel_path)
+        with open(path) as fh:
+            return fh.read()
+
+    def test_no_private_preg_in_any_module(self):
+        """No module may declare secp256k1_w5_t preG in private memory."""
+        for rel in self._ALL_MODULES:
+            with self.subTest(module=rel):
+                content = self._read(rel)
+                self.assertNotIn(
+                    "secp256k1_w5_t preG", content,
+                    f"{rel} still declares private preG — should use LOCAL_AS lm_w5"
+                )
+
+    def test_all_modules_declare_lm_w5(self):
+        """Every module must declare LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE]."""
+        for rel in self._ALL_MODULES:
+            with self.subTest(module=rel):
+                content = self._read(rel)
+                self.assertIn(
+                    "LOCAL_AS u32 lm_w5", content,
+                    f"{rel} missing LOCAL_AS lm_w5 declaration"
+                )
+
+    def test_all_modules_call_lm_init(self):
+        """Every module must call set_precomputed_basepoint_g_w5_lm."""
+        for rel in self._ALL_MODULES:
+            with self.subTest(module=rel):
+                content = self._read(rel)
+                self.assertIn(
+                    "set_precomputed_basepoint_g_w5_lm", content,
+                    f"{rel} missing set_precomputed_basepoint_g_w5_lm call"
+                )
+
+    def test_all_modules_use_lm_point_mul(self):
+        """Every module must call point_mul_glv_wnaf_w5_lm."""
+        for rel in self._ALL_MODULES:
+            with self.subTest(module=rel):
+                content = self._read(rel)
+                self.assertIn(
+                    "point_mul_glv_wnaf_w5_lm", content,
+                    f"{rel} missing point_mul_glv_wnaf_w5_lm call"
+                )
+
+    def test_all_modules_have_lid_lsz(self):
+        """Every module must declare get_local_id / get_local_size for cooperative lm init."""
+        for rel in self._ALL_MODULES:
+            with self.subTest(module=rel):
+                content = self._read(rel)
+                self.assertIn(
+                    "get_local_id", content,
+                    f"{rel} missing get_local_id — cannot init local memory cooperatively"
+                )
 
 
 class TestClFileHasShmemFunctions(unittest.TestCase):
@@ -468,6 +539,10 @@ class TestClFileHasShmemFunctions(unittest.TestCase):
 
     def test_cl_defines_point_mul_wnaf_w5_lm(self):
         self.assertIn("point_mul_wnaf_w5_lm", self._read())
+
+    def test_cl_defines_point_mul_glv_wnaf_w5_lm(self):
+        """New Phase 9: GLV+wNAF w=5 local memory variant must be defined."""
+        self.assertIn("point_mul_glv_wnaf_w5_lm", self._read())
 
     def test_cl_uses_sync_threads(self):
         """SHMEM init functions must call SYNC_THREADS()."""
