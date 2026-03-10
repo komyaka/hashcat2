@@ -1586,11 +1586,14 @@ class TestModuleGLVIntegration(unittest.TestCase):
                 self.assertIn("point_mul_glv_wnaf_w5", content)
 
     def test_all_glv_modules_use_secp256k1_w5_t(self):
-        """Every Phase-5 module file must declare secp256k1_w5_t preG."""
+        """Every Phase-5+ module file must use the GLV w=5 local memory path (lm_w5)."""
         for rel in self._GLV_MODULES:
             with self.subTest(module=rel):
                 content = self._read_module(rel)
-                self.assertIn("secp256k1_w5_t", content)
+                # Phase 9: local memory variant replaces private secp256k1_w5_t preG
+                self.assertNotIn("secp256k1_w5_t preG", content,
+                                 "Module must use LOCAL_AS lm_w5, not private preG")
+                self.assertIn("LOCAL_AS u32 lm_w5", content)
 
     def test_m35900_to_m35904_no_old_point_mul_xy(self):
         """Brainwallet modules (m35900–m35904) must not call old point_mul_xy."""

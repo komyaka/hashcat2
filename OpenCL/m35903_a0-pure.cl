@@ -143,12 +143,16 @@ DECLSPEC void keccak_256_64 (PRIVATE_AS const u32 *in, PRIVATE_AS u32 *out)
 KERNEL_FQ KERNEL_FA void m35903_mxx (KERN_ATTR_RULES ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -180,7 +184,7 @@ KERNEL_FQ KERNEL_FA void m35903_mxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
+    point_mul_glv_wnaf_w5_lm (x, y, prv_key, lm_w5);
 
     // Ethereum: uncompressed public key (x || y) in big-endian
     u32 pub_key[16];
@@ -218,6 +222,13 @@ KERNEL_FQ KERNEL_FA void m35903_mxx (KERN_ATTR_RULES ())
 KERNEL_FQ KERNEL_FA void m35903_sxx (KERN_ATTR_RULES ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
@@ -229,9 +240,6 @@ KERNEL_FQ KERNEL_FA void m35903_sxx (KERN_ATTR_RULES ())
     digests_buf[DIGESTS_OFFSET_HOST].digest_buf[DGST_R3]
   };
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   COPY_PW (pws[gid]);
 
@@ -262,7 +270,7 @@ KERNEL_FQ KERNEL_FA void m35903_sxx (KERN_ATTR_RULES ())
     u32 x[8];
     u32 y[8];
 
-    point_mul_glv_wnaf_w5 (x, y, prv_key, &preG);
+    point_mul_glv_wnaf_w5_lm (x, y, prv_key, lm_w5);
 
     u32 pub_key[16];
 

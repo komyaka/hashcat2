@@ -181,12 +181,12 @@ DECLSPEC void reverse_prv_key (PRIVATE_AS u32 *prv_rev, PRIVATE_AS const u32 *pr
 }
 
 DECLSPEC void prv_to_eth_addr (PRIVATE_AS u32 *addr, PRIVATE_AS const u32 *prv_key,
-                                SECP256K1_TMPS_TYPE secp256k1_w5_t *preG)
+                                LOCAL_AS const u32 *lm_w5)
 {
   u32 x[8];
   u32 y[8];
 
-  point_mul_glv_wnaf_w5 (x, y, prv_key, preG);
+  point_mul_glv_wnaf_w5_lm (x, y, prv_key, lm_w5);
 
   u32 pub_key[16];
 
@@ -254,6 +254,13 @@ DECLSPEC u32 add1_256 (PRIVATE_AS u32 *r, PRIVATE_AS const u32 *a)
 KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
@@ -266,9 +273,6 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   u32x w0l = w[0];
 
@@ -355,7 +359,7 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
     else
     {
       /* Full scalar multiplication (first key or non-sequential jump). */
-      point_mul_glv_wnaf_w5 (pub_x, pub_y, prv_key, &preG);
+      point_mul_glv_wnaf_w5_lm (pub_x, pub_y, prv_key, lm_w5);
 
       for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
       for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
@@ -383,7 +387,7 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
     reverse_prv_key (prv_rev, prv_key);
 
     u32 rev_x[8], rev_y[8];
-    point_mul_glv_wnaf_w5 (rev_x, rev_y, prv_rev, &preG);
+    point_mul_glv_wnaf_w5_lm (rev_x, rev_y, prv_rev, lm_w5);
 
     prv_to_eth_addr_xy (addr, rev_x, rev_y);
 
@@ -399,6 +403,13 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_VECTOR ())
 KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
@@ -419,9 +430,6 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   u32x w0l = w[0];
 
@@ -508,7 +516,7 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
     else
     {
       /* Full scalar multiplication (first key or non-sequential jump). */
-      point_mul_glv_wnaf_w5 (pub_x, pub_y, prv_key, &preG);
+      point_mul_glv_wnaf_w5_lm (pub_x, pub_y, prv_key, lm_w5);
 
       for (u32 j = 0; j < 8; j++) gka_x[j] = pub_x[j];
       for (u32 j = 0; j < 8; j++) gka_y[j] = pub_y[j];
@@ -536,7 +544,7 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_VECTOR ())
     reverse_prv_key (prv_rev, prv_key);
 
     u32 rev_x[8], rev_y[8];
-    point_mul_glv_wnaf_w5 (rev_x, rev_y, prv_rev, &preG);
+    point_mul_glv_wnaf_w5_lm (rev_x, rev_y, prv_rev, lm_w5);
 
     prv_to_eth_addr_xy (addr, rev_x, rev_y);
 

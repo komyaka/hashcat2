@@ -181,12 +181,12 @@ DECLSPEC void reverse_prv_key (PRIVATE_AS u32 *prv_rev, PRIVATE_AS const u32 *pr
 }
 
 DECLSPEC void prv_to_eth_addr (PRIVATE_AS u32 *addr, PRIVATE_AS const u32 *prv_key,
-                                SECP256K1_TMPS_TYPE secp256k1_w5_t *preG)
+                                LOCAL_AS const u32 *lm_w5)
 {
   u32 x[8];
   u32 y[8];
 
-  point_mul_glv_wnaf_w5 (x, y, prv_key, preG);
+  point_mul_glv_wnaf_w5_lm (x, y, prv_key, lm_w5);
 
   u32 pub_key[16];
 
@@ -213,6 +213,13 @@ DECLSPEC void prv_to_eth_addr (PRIVATE_AS u32 *addr, PRIVATE_AS const u32 *prv_k
 KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_BASIC ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
@@ -230,9 +237,6 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_BASIC ())
 
   const u32 pw_l_len = pws[gid].pw_len & 63;
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos++)
   {
@@ -267,7 +271,7 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_BASIC ())
 
     u32 addr[5];
 
-    prv_to_eth_addr (addr, prv_key, &preG);
+    prv_to_eth_addr (addr, prv_key, lm_w5);
 
     const u32 r0 = addr[0];
     const u32 r1 = addr[1];
@@ -280,7 +284,7 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_BASIC ())
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_eth_addr (addr, prv_rev, &preG);
+    prv_to_eth_addr (addr, prv_rev, lm_w5);
 
     const u32 rr0 = addr[0];
     const u32 rr1 = addr[1];
@@ -294,6 +298,13 @@ KERNEL_FQ KERNEL_FA void m35906_mxx (KERN_ATTR_BASIC ())
 KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_BASIC ())
 {
   const u64 gid = get_global_id (0);
+  const u64 lid = get_local_id (0);
+  const u64 lsz = get_local_size (0);
+
+  LOCAL_AS u32 lm_w5[SECP256K1_W5_SHMEM_SIZE];
+
+  set_precomputed_basepoint_g_w5_lm (lm_w5, lid, lsz);
+
 
   if (gid >= GID_CNT) return;
 
@@ -319,9 +330,6 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_BASIC ())
 
   const u32 pw_l_len = pws[gid].pw_len & 63;
 
-  secp256k1_w5_t preG;
-
-  set_precomputed_basepoint_g_w5 (&preG);
 
   for (u32 il_pos = 0; il_pos < IL_CNT; il_pos++)
   {
@@ -356,7 +364,7 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_BASIC ())
 
     u32 addr[5];
 
-    prv_to_eth_addr (addr, prv_key, &preG);
+    prv_to_eth_addr (addr, prv_key, lm_w5);
 
     const u32 r0 = addr[0];
     const u32 r1 = addr[1];
@@ -369,7 +377,7 @@ KERNEL_FQ KERNEL_FA void m35906_sxx (KERN_ATTR_BASIC ())
 
     reverse_prv_key (prv_rev, prv_key);
 
-    prv_to_eth_addr (addr, prv_rev, &preG);
+    prv_to_eth_addr (addr, prv_rev, lm_w5);
 
     const u32 rr0 = addr[0];
     const u32 rr1 = addr[1];
