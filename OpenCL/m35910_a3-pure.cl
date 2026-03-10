@@ -52,7 +52,7 @@ KERNEL_FQ KERNEL_FA void m35910_mxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-    /**
+  /**
    * loop
    */
 
@@ -204,7 +204,7 @@ KERNEL_FQ KERNEL_FA void m35910_sxx (KERN_ATTR_VECTOR ())
     w[idx] = pws[gid].i[idx];
   }
 
-    /**
+  /**
    * loop
    */
 
