@@ -969,6 +969,12 @@ DECLSPEC void point_mul_wnaf_w6 (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE
 DECLSPEC void set_precomputed_basepoint_g_w6_lm (LOCAL_AS u32 *lm_xy, const u64 lid, const u64 lsz);
 DECLSPEC void point_mul_wnaf_w6_lm (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS const u32 *k, LOCAL_AS const u32 *lm_xy);
 DECLSPEC void point_mul_glv_wnaf_w5 (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry, PRIVATE_AS const u32 *k, SECP256K1_TMPS_TYPE const secp256k1_w5_t *tmps);
+// point_mul_glv_wnaf_w5_lm: GLV+wNAF w=5 variant reading precomputed table from LOCAL_AS memory.
+// Identical to point_mul_glv_wnaf_w5() but uses lm_xy (local/shared memory) to free ~192 VGPRs.
+// Must be preceded by set_precomputed_basepoint_g_w5_lm() in the same workgroup.
+DECLSPEC void point_mul_glv_wnaf_w5_lm (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
+                                         PRIVATE_AS const u32 *k,
+                                         LOCAL_AS const u32 *lm_xy);
 
 // -----------------------------------------------------------------------
 // Task 8: API unification — libsecp256k1 / KeyHunt compatible interface

@@ -4813,6 +4813,127 @@ DECLSPEC void point_mul_glv_wnaf_w5 (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
   mul_mod (ry, ry_j, rz2);
 }
 
+// point_mul_glv_wnaf_w5_lm: GLV+wNAF w=5 variant reading precomputed table from LOCAL_AS memory.
+// Identical to point_mul_glv_wnaf_w5() but uses lm_xy (local/shared memory) to free ~192 VGPRs.
+// Must be preceded by set_precomputed_basepoint_g_w5_lm() in the same workgroup.
+DECLSPEC void point_mul_glv_wnaf_w5_lm (PRIVATE_AS u32 *rx, PRIVATE_AS u32 *ry,
+                                         PRIVATE_AS const u32 *k,
+                                         LOCAL_AS const u32 *lm_xy)
+{
+  /* Decompose k into k1, k2 using GLV Babai rounding. */
+  u32 k1v[6]; /* [0..4] = magnitude, [5] = sign */
+  u32 k2v[6];
+
+  glv_decompose (k, k1v, k2v);
+
+  /* Compute wNAF representations of |k1| and |k2|.
+   * glv_decompose stores the magnitude in k1v[0..4], sign in k1v[5].
+   * Build an 8-word scalar from the 5-word magnitude. */
+  u32 k1_scalar[8] = { k1v[0], k1v[1], k1v[2], k1v[3], k1v[4], 0, 0, 0 };
+  u32 k2_scalar[8] = { k2v[0], k2v[1], k2v[2], k2v[3], k2v[4], 0, 0, 0 };
+
+  u32 naf1[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+  u32 naf2[SECP256K1_NAF_BYTE_SIZE] = { 0 };
+
+  int loop1 = convert_to_wnaf_byte (naf1, k1_scalar);
+  int loop2 = convert_to_wnaf_byte (naf2, k2_scalar);
+
+  int loop_start = loop1 > loop2 ? loop1 : loop2;
+
+  /* Load beta constant for phi(G) = (beta * Gx mod p, Gy). */
+  u32 beta[8];
+  beta[0] = SECP256K1_BETA0;
+  beta[1] = SECP256K1_BETA1;
+  beta[2] = SECP256K1_BETA2;
+  beta[3] = SECP256K1_BETA3;
+  beta[4] = SECP256K1_BETA4;
+  beta[5] = SECP256K1_BETA5;
+  beta[6] = SECP256K1_BETA6;
+  beta[7] = SECP256K1_BETA7;
+
+  /* Initialize accumulator; first non-zero digit sets it. */
+  u32 rx_j[8], ry_j[8], rz_j[8];
+  u32 initialized = 0;
+
+  for (int pos = loop_start; pos >= 0; pos--)
+  {
+    if (initialized)
+    {
+      point_double (rx_j, ry_j, rz_j);
+    }
+
+    const u32 d1 = (naf1[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+    const u32 d2 = (naf2[pos >> 2] >> ((pos & 3) << 3)) & 0xff;
+
+    if (d1)
+    {
+      const u32 odd1 = d1 & 1;
+      const u32 xp1  = ((d1 - 1 + odd1) >> 1) * 24;
+      /* odd1==1: positive digit; negate if k1 sign is negative (k1v[5]==1) */
+      u32 yp1;
+      if ((odd1 == 1) != (k1v[5] == 0))
+        yp1 = xp1 + 16; /* use -y */
+      else
+        yp1 = xp1 + 8;  /* use +y */
+
+      u32 x2[8], y2[8];
+      for (u32 i = 0; i < 8; i++) x2[i] = lm_xy[xp1 + i];
+      for (u32 i = 0; i < 8; i++) y2[i] = lm_xy[yp1 + i];
+
+      if (!initialized)
+      {
+        for (u32 i = 0; i < 8; i++) rx_j[i] = x2[i];
+        for (u32 i = 0; i < 8; i++) ry_j[i] = y2[i];
+        rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
+        initialized = 1;
+      }
+      else
+      {
+        point_add (rx_j, ry_j, rz_j, x2, y2);
+      }
+    }
+
+    if (d2)
+    {
+      const u32 odd2 = d2 & 1;
+      const u32 xp2  = ((d2 - 1 + odd2) >> 1) * 24;
+      u32 yp2;
+      if ((odd2 == 1) != (k2v[5] == 0))
+        yp2 = xp2 + 16;
+      else
+        yp2 = xp2 + 8;
+
+      /* phi(P): multiply x by beta, keep y unchanged. */
+      u32 base_x[8];
+      for (u32 i = 0; i < 8; i++) base_x[i] = lm_xy[xp2 + i];
+      u32 phi_px[8], phi_py[8];
+      mul_mod_ptx (phi_px, beta, base_x);
+      for (u32 i = 0; i < 8; i++) phi_py[i] = lm_xy[yp2 + i];
+
+      if (!initialized)
+      {
+        for (u32 i = 0; i < 8; i++) rx_j[i] = phi_px[i];
+        for (u32 i = 0; i < 8; i++) ry_j[i] = phi_py[i];
+        rz_j[0] = 1; for (u32 i = 1; i < 8; i++) rz_j[i] = 0;
+        initialized = 1;
+      }
+      else
+      {
+        point_add (rx_j, ry_j, rz_j, phi_px, phi_py);
+      }
+    }
+  }
+
+  /* Convert Jacobian to affine. */
+  inv_mod (rz_j);
+
+  u32 rz2[8];
+  mul_mod (rz2, rz_j, rz_j);
+  mul_mod (rx, rx_j, rz2);
+  mul_mod (rz2, rz2, rz_j);
+  mul_mod (ry, ry_j, rz2);
+}
+
 DECLSPEC void point_add_affine_G (PRIVATE_AS u32 *x1, PRIVATE_AS u32 *y1, PRIVATE_AS u32 *z1)
 {
   /* Add the generator point G (affine) to the Jacobian point (x1:y1:z1).
