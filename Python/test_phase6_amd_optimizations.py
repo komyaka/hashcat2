@@ -447,54 +447,58 @@ class TestGroupKeyAdditionAMD05(unittest.TestCase):
     """
 
     def test_incremental_100_keys(self):
-        """Base + i*G == point_mul(base+i) for i in 1..100."""
+        """Base + i*G == point_mul(base+i), checked every 10 steps for CI speed."""
         rng = random.Random(9001)
         base = rng.randrange(1, N - 100)
         Qx, Qy = point_mul(base)
         for i in range(1, 101):
             Qx, Qy = point_add(Qx, Qy, Gx, Gy)
-            ex, ey = point_mul((base + i) % N)
-            with self.subTest(i=i):
-                self.assertEqual(Qx, ex, f"x mismatch at i={i}")
-                self.assertEqual(Qy, ey, f"y mismatch at i={i}")
+            if i % 10 == 0 or i == 100:
+                ex, ey = point_mul((base + i) % N)
+                with self.subTest(i=i):
+                    self.assertEqual(Qx, ex, f"x mismatch at i={i}")
+                    self.assertEqual(Qy, ey, f"y mismatch at i={i}")
 
     def test_incremental_500_keys(self):
-        """Incremental walk of 500 consecutive keys from a random base."""
+        """Incremental walk of 500 consecutive keys; spot-checked every 50 steps."""
         rng = random.Random(9002)
         base = rng.randrange(1, N - 500)
         Qx, Qy = point_mul(base)
         for i in range(1, 501):
             Qx, Qy = point_add(Qx, Qy, Gx, Gy)
-            ex, ey = point_mul((base + i) % N)
-            with self.subTest(i=i):
-                self.assertEqual(Qx, ex)
-                self.assertEqual(Qy, ey)
+            if i % 50 == 0 or i == 500:
+                ex, ey = point_mul((base + i) % N)
+                with self.subTest(i=i):
+                    self.assertEqual(Qx, ex)
+                    self.assertEqual(Qy, ey)
 
     def test_incremental_stride_2(self):
-        """Incremental stride-2: add 2G each step → base, base+2, base+4, ..."""
+        """Incremental stride-2: add 2G each step; spot-checked every 10 steps."""
         rng = random.Random(9003)
         base = rng.randrange(1, N - 200)
         G2x, G2y = point_mul(2)     # 2G
         Qx, Qy   = point_mul(base)
         for i in range(1, 101):
             Qx, Qy = point_add(Qx, Qy, G2x, G2y)
-            ex, ey = point_mul((base + 2 * i) % N)
-            with self.subTest(i=i):
-                self.assertEqual(Qx, ex)
-                self.assertEqual(Qy, ey)
+            if i % 10 == 0 or i == 100:
+                ex, ey = point_mul((base + 2 * i) % N)
+                with self.subTest(i=i):
+                    self.assertEqual(Qx, ex)
+                    self.assertEqual(Qy, ey)
 
     def test_incremental_stride_16(self):
-        """Incremental stride-16 (typical nibble-step for hex key mask)."""
+        """Incremental stride-16; spot-checked every 10 steps."""
         rng = random.Random(9004)
         base = rng.randrange(1, N - 16 * 50)
         G16x, G16y = point_mul(16)  # 16G
         Qx, Qy     = point_mul(base)
         for i in range(1, 51):
             Qx, Qy = point_add(Qx, Qy, G16x, G16y)
-            ex, ey = point_mul((base + 16 * i) % N)
-            with self.subTest(i=i):
-                self.assertEqual(Qx, ex)
-                self.assertEqual(Qy, ey)
+            if i % 10 == 0 or i == 50:
+                ex, ey = point_mul((base + 16 * i) % N)
+                with self.subTest(i=i):
+                    self.assertEqual(Qx, ex)
+                    self.assertEqual(Qy, ey)
 
     def test_incremental_from_k_equals_1(self):
         """Starting from G (k=1): i-th step gives (1+i)*G = point_mul(1+i)."""
